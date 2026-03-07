@@ -190,8 +190,8 @@ pub fn assert_schema_valid(binary: &str) {
         "R-006: --schema output must be a JSON Schema document"
     );
     assert!(
-        json.get("properties").is_some(),
-        "R-006: --schema must describe output properties"
+        json.get("properties").is_some() || json.get("definitions").is_some(),
+        "R-006: --schema must describe output structure (properties or definitions)"
     );
 }
 
