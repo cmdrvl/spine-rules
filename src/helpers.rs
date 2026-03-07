@@ -262,7 +262,20 @@ pub fn assert_refusal_has_version(binary: &str, args: &[&str]) {
 // ── R-008 / R-017: Witness behaviour ────────────────────────────────────────
 
 /// Assert `--no-witness` suppresses ledger file creation.
+///
+/// Establishes a baseline exit code first (without witness env), then
+/// reruns with `EPISTEMIC_WITNESS` + `--no-witness` and asserts the
+/// exit code is unchanged and no ledger file was created.
 pub fn assert_no_witness_suppresses_ledger(binary: &str, args: &[&str]) {
+    // Baseline: run without EPISTEMIC_WITNESS to get domain exit code.
+    let baseline = Command::new(binary)
+        .env_remove("EPISTEMIC_WITNESS")
+        .args(args)
+        .output()
+        .unwrap_or_else(|e| panic!("Failed to run {} (baseline): {}", binary, e));
+    let baseline_code = baseline.status.code();
+
+    // Now run with EPISTEMIC_WITNESS pointed at a temp dir + --no-witness.
     let temp = tempfile::tempdir().expect("create temp dir");
     let ledger_path = temp.path().join("witness.jsonl");
 
@@ -277,9 +290,11 @@ pub fn assert_no_witness_suppresses_ledger(binary: &str, args: &[&str]) {
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {}: {}", binary, e));
 
-    assert!(
-        output.status.success(),
-        "R-008: run with --no-witness must still succeed (exit 0), got {}",
+    assert_eq!(
+        output.status.code(),
+        baseline_code,
+        "R-008: --no-witness must not change exit code (baseline {}, got {})",
+        baseline_code.unwrap_or(-1),
         output.status.code().unwrap_or(-1)
     );
 
@@ -290,17 +305,38 @@ pub fn assert_no_witness_suppresses_ledger(binary: &str, args: &[&str]) {
 }
 
 /// Assert witness write failure does not change the exit code.
+///
+/// Establishes a baseline exit code (without witness), then reruns
+/// with an impossible `EPISTEMIC_WITNESS` path (without `--no-witness`)
+/// and asserts the exit code is unchanged.
 pub fn assert_witness_failure_nonfatal(binary: &str, args: &[&str]) {
+    // Strip --no-witness from args so witness code actually runs.
+    let bare_args: Vec<&str> = args
+        .iter()
+        .copied()
+        .filter(|a| *a != "--no-witness")
+        .collect();
+
+    // Baseline: run without witness env.
+    let baseline = Command::new(binary)
+        .env_remove("EPISTEMIC_WITNESS")
+        .args(&bare_args)
+        .output()
+        .unwrap_or_else(|e| panic!("Failed to run {} (baseline): {}", binary, e));
+    let baseline_code = baseline.status.code();
+
+    // Run with an impossible witness path — write will fail.
     let output = Command::new(binary)
         .env("EPISTEMIC_WITNESS", "/dev/null/impossible/witness.jsonl")
-        .args(args)
+        .args(&bare_args)
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {}: {}", binary, e));
 
     assert_eq!(
         output.status.code(),
-        Some(0),
-        "R-017 VIOLATION: Witness write failure changed RESOLVED (exit 0) to exit {}",
+        baseline_code,
+        "R-017 VIOLATION: Witness write failure changed exit code from {} to {}",
+        baseline_code.unwrap_or(-1),
         output.status.code().unwrap_or(-1)
     );
 }
