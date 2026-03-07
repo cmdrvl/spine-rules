@@ -64,6 +64,22 @@ pub fn collect_refusal_codes_from_manifest(operator_json: &str) -> BTreeSet<Stri
     codes
 }
 
+/// Truncate source at the `#[cfg(test)]` module boundary.
+///
+/// Avoids false positives from test-only E_ code fixtures (e.g. `"E_NOPE"`
+/// in error-path tests).
+fn strip_test_module(source: &str) -> String {
+    let mut result = String::new();
+    for line in source.lines() {
+        if line.trim() == "#[cfg(test)]" {
+            break;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
+}
+
 /// Extract E_ codes from source text (string literals matching `"E_UPPER_CASE"`).
 pub fn extract_e_codes_from_source(source: &str) -> BTreeSet<String> {
     let mut codes = BTreeSet::new();
@@ -106,7 +122,9 @@ pub fn assert_refusal_codes_match_source(
         let path = Path::new(manifest_dir).join(file);
         let content = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("Cannot read {}: {}", path.display(), e));
-        combined_source.push_str(&content);
+        // Strip #[cfg(test)] modules to avoid false positives from test fixtures.
+        let production_only = strip_test_module(&content);
+        combined_source.push_str(&production_only);
         combined_source.push('\n');
     }
 
