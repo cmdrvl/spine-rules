@@ -212,14 +212,23 @@ pub fn assert_version_exits_zero(binary: &str) {
 // ── R-001: Version field in output ──────────────────────────────────────────
 
 /// Assert that a successful run includes "version" in JSON stdout.
+///
+/// Handles both single-object JSON and streaming JSONL (checks first line).
 pub fn assert_output_has_version(binary: &str, args: &[&str]) {
     let output = Command::new(binary)
         .args(args)
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {}: {}", binary, e));
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("R-001: stdout must be valid JSON");
+    // Try single JSON object first, fall back to first JSONL line.
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let first_line = stdout
+            .lines()
+            .next()
+            .expect("R-001: stdout must not be empty");
+        serde_json::from_str(first_line).expect("R-001: first line must be valid JSON")
+    });
 
     assert!(
         json.get("version").is_some(),
