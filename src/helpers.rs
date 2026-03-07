@@ -240,7 +240,9 @@ pub fn assert_no_witness_suppresses_ledger(binary: &str, args: &[&str]) {
     let ledger_path = temp.path().join("witness.jsonl");
 
     let mut full_args: Vec<&str> = args.to_vec();
-    full_args.push("--no-witness");
+    if !full_args.contains(&"--no-witness") {
+        full_args.push("--no-witness");
+    }
 
     let output = Command::new(binary)
         .env("EPISTEMIC_WITNESS", &ledger_path)
