@@ -11,7 +11,7 @@
 /// - `fixture_success_args`: args that produce a successful (exit 0) run
 /// - `fixture_refusal_args`: args that produce a refusal (exit 2) run
 /// - `fixture_csv`: path to a CSV input file for row-count test
-/// - `fixture_csv_args`: args for the CSV row-count run
+/// - `fixture_csv_args`: args for the CSV row-count run (must accompany `fixture_csv`)
 /// - `exit_code_1_required`: set to `false` for tools without a negative domain (default: true)
 ///
 /// # Example
@@ -37,8 +37,7 @@ macro_rules! golden_rules_suite {
         source_files: $source_files:expr,
         $(fixture_success_args: $success_args:expr,)?
         $(fixture_refusal_args: $refusal_args:expr,)?
-        $(fixture_csv: $csv_path:expr,)?
-        $(fixture_csv_args: $csv_args:expr,)?
+        $(fixture_csv: $csv_path:expr, fixture_csv_args: $csv_args:expr,)?
         $(exit_code_1_required: $require_1:expr,)?
     ) => {
         // ── R-002 / R-007: Exit-code trinity ────────────────────────────
@@ -104,15 +103,8 @@ macro_rules! golden_rules_suite {
             #[test]
             fn r021_csv_row_count_preserved() {
                 let csv_path = concat!(env!("CARGO_MANIFEST_DIR"), "/", $csv_path);
-                // We need csv_args — this block only expands if fixture_csv is set.
-                // The csv_args must also be set when fixture_csv is set.
-                golden_rules_suite!(@csv_test $binary, csv_path, $($csv_args)?);
+                $crate::helpers::assert_csv_row_count_preserved($binary, csv_path, $csv_args);
             }
         )?
-    };
-
-    // Internal helper: expand CSV test with args.
-    (@csv_test $binary:expr, $csv_path:expr, $csv_args:expr) => {
-        $crate::helpers::assert_csv_row_count_preserved($binary, $csv_path, $csv_args);
     };
 }
