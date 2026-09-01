@@ -3,8 +3,9 @@
 //! Each test chains two or more tools the way a real operator would. Tests skip
 //! gracefully (via `require_binaries!`) when any required binary is missing.
 //!
-//! All fixture data is inline `const &str` and written to tempdirs at runtime.
+//! All fixture data is inline and written to tempdirs at runtime.
 
+use spine_rules::composite_key::assert_authoritative_key_output;
 use spine_rules::pipeline::*;
 use spine_rules::require_binaries;
 use std::fs;
@@ -82,6 +83,24 @@ include_columns:
   - term
   - status
 ";
+
+const COMPOSITE_PROFILE: &str = "\
+schema_version: 1
+status: draft
+format: csv
+key:
+  - first
+  - second
+include_columns:
+  - first
+  - second
+  - amount
+";
+
+const COMPOSITE_OLD: &[u8] =
+    b"first,second,amount\n \tA ,East,100\nA,West,200\na\xff,b,300\na,\xffb,400\nNA,NULL,500\n";
+const COMPOSITE_NEW: &[u8] =
+    b"first,second,amount\na,\xffb,400\nA,West,250\nNA,NULL,500\nA,East,100\na\xff,b,300\n";
 
 // ── Test 1: vacuum → hashbytes → lock → lock verify ─────────────────────────
 
@@ -169,7 +188,14 @@ fn test_vacuum_hash_lock_verify() {
 
     let verify_run = run_tool(
         "lock",
-        &["verify", lockfile_str, "--root", root_str, "--json", "--no-witness"],
+        &[
+            "verify",
+            lockfile_str,
+            "--root",
+            root_str,
+            "--json",
+            "--no-witness",
+        ],
     );
     assert!(
         verify_run.success(),
@@ -317,7 +343,10 @@ fn test_shape_rvl_comparison() {
     assert_eq!(shape_result["outcome"], "COMPATIBLE");
 
     // 2. rvl: L003 balance changed 250000→255000 → REAL_CHANGE (exit 1)
-    let rvl_run = run_tool("rvl", &[old_str, new_str, "--json", "--no-witness"]);
+    let rvl_run = run_tool(
+        "rvl",
+        &[old_str, new_str, "--json", "--explicit", "--no-witness"],
+    );
     assert_eq!(
         rvl_run.code,
         Some(1),
@@ -343,7 +372,145 @@ fn test_shape_rvl_comparison() {
     assert_eq!(first["delta"], 5000.0);
 }
 
-// ── Test 4: canon — identity resolution ──────────────────────────────────────
+// ── Test 4: shape + rvl — shared composite-key conformance ──────────────
+
+#[test]
+fn test_shape_rvl_composite_key_conformance() {
+    let (Some(shape_binary), Some(rvl_binary)) = (
+        composite_consumer_binary("shape"),
+        composite_consumer_binary("rvl"),
+    ) else {
+        eprintln!("SKIPPED: current shape/rvl consumer binaries are unavailable");
+        return;
+    };
+
+    let dir = tempdir().expect("create tempdir");
+    let old_path = dir.path().join("old.csv");
+    let new_path = dir.path().join("new.csv");
+    let profile_path = dir.path().join("profile.yaml");
+    fs::write(&old_path, COMPOSITE_OLD).unwrap();
+    fs::write(&new_path, COMPOSITE_NEW).unwrap();
+    fs::write(&profile_path, COMPOSITE_PROFILE).unwrap();
+
+    let old = old_path.to_str().unwrap();
+    let new = new_path.to_str().unwrap();
+    let profile = profile_path.to_str().unwrap();
+
+    let shape_run = run_tool(
+        &shape_binary,
+        &[
+            old,
+            new,
+            "--delimiter",
+            "comma",
+            "--profile",
+            profile,
+            "--json",
+            "--no-witness",
+        ],
+    );
+    assert_eq!(
+        shape_run.code,
+        Some(0),
+        "stdout: {}\nstderr: {}",
+        shape_run.stdout_text(),
+        shape_run.stderr_text()
+    );
+    let shape = parse_json(&shape_run.stdout);
+    assert_eq!(shape["outcome"], "COMPATIBLE");
+    assert_eq!(shape["checks"]["key_viability"]["unique_old"], true);
+    assert_eq!(shape["checks"]["key_viability"]["unique_new"], true);
+    assert_eq!(shape["checks"]["row_granularity"]["key_overlap"], 5);
+    assert_authoritative_key_output(
+        &shape,
+        "/checks/key_viability/key_columns",
+        "/checks/key_viability/key_column",
+        &[b"first".to_vec(), b"second".to_vec()],
+    );
+
+    let rvl_run = run_tool(
+        &rvl_binary,
+        &[
+            old,
+            new,
+            "--delimiter",
+            "comma",
+            "--profile",
+            profile,
+            "--json",
+            "--explicit",
+            "--no-witness",
+        ],
+    );
+    assert_eq!(rvl_run.code, Some(1), "{}", rvl_run.stderr_text());
+    let rvl = parse_json(&rvl_run.stdout);
+    assert_eq!(rvl["outcome"], "REAL_CHANGE");
+    assert_authoritative_key_output(
+        &rvl,
+        "/alignment/key_columns",
+        "/alignment/key_column",
+        &[b"first".to_vec(), b"second".to_vec()],
+    );
+    assert_authoritative_key_output(
+        &rvl,
+        "/contributors/0/row_key",
+        "/contributors/0/row_id",
+        &[b"A".to_vec(), b"West".to_vec()],
+    );
+
+    fs::write(&old_path, b"first,second,amount\nA,1,10\nA,1,20\nA,2,30\n").unwrap();
+    fs::write(&new_path, b"first,second,amount\nA,1,10\nA,2,20\nA,3,30\n").unwrap();
+
+    let shape_duplicate = run_tool(
+        &shape_binary,
+        &[old, new, "--profile", profile, "--json", "--no-witness"],
+    );
+    assert_eq!(shape_duplicate.code, Some(1));
+    let shape_duplicate = parse_json(&shape_duplicate.stdout);
+    assert_eq!(
+        shape_duplicate["checks"]["key_viability"]["unique_old"],
+        false
+    );
+
+    let rvl_duplicate = run_tool(
+        &rvl_binary,
+        &[old, new, "--profile", profile, "--json", "--no-witness"],
+    );
+    assert_eq!(rvl_duplicate.code, Some(2));
+    let rvl_duplicate = parse_json(&rvl_duplicate.stdout);
+    assert_eq!(rvl_duplicate["refusal"]["code"], "E_KEY_DUP");
+    assert_authoritative_key_output(
+        &rvl_duplicate,
+        "/refusal/detail/key_values",
+        "/refusal/detail/key",
+        &[b"A".to_vec(), b"1".to_vec()],
+    );
+
+    fs::write(&old_path, b"first,second,amount\nA, \t ,10\nX,Y,20\n").unwrap();
+    fs::write(&new_path, b"first,second,amount\nA,B,10\nX,Y,20\n").unwrap();
+
+    let shape_incomplete = run_tool(
+        &shape_binary,
+        &[old, new, "--profile", profile, "--json", "--no-witness"],
+    );
+    assert_eq!(shape_incomplete.code, Some(1));
+    let shape_incomplete = parse_json(&shape_incomplete.stdout);
+    assert_eq!(
+        shape_incomplete["checks"]["key_viability"]["unique_old"],
+        false
+    );
+
+    let rvl_incomplete = run_tool(
+        &rvl_binary,
+        &[old, new, "--profile", profile, "--json", "--no-witness"],
+    );
+    assert_eq!(rvl_incomplete.code, Some(2));
+    let rvl_incomplete = parse_json(&rvl_incomplete.stdout);
+    assert_eq!(rvl_incomplete["refusal"]["code"], "E_KEY_EMPTY");
+    assert_eq!(rvl_incomplete["refusal"]["detail"]["column"], "u8:second");
+}
+
+// ── Test 5: canon — identity resolution ──────────────────────────────────────
 
 #[test]
 fn test_canon_resolution() {
@@ -359,11 +526,7 @@ fn test_canon_resolution() {
     let registry_dir = dir.path().join("registry");
     fs::create_dir(&registry_dir).unwrap();
     fs::write(registry_dir.join("registry.json"), REGISTRY_JSON).unwrap();
-    fs::write(
-        registry_dir.join("ticker-to-cusip.json"),
-        TICKER_MAPPINGS,
-    )
-    .unwrap();
+    fs::write(registry_dir.join("ticker-to-cusip.json"), TICKER_MAPPINGS).unwrap();
 
     let input_str = input_path.to_str().unwrap();
     let registry_str = registry_dir.to_str().unwrap();
@@ -434,7 +597,7 @@ fn test_canon_resolution() {
     );
 }
 
-// ── Test 5: full evidence pipeline ───────────────────────────────────────────
+// ── Test 6: full evidence pipeline ───────────────────────────────────────────
 
 #[test]
 fn test_full_evidence_pipeline() {
@@ -459,10 +622,7 @@ fn test_full_evidence_pipeline() {
     let profile_str = profile_path.to_str().unwrap();
 
     // 1. profile show — validate profile is parseable.
-    let profile_run = run_tool(
-        "profile",
-        &["show", profile_str, "--json", "--no-witness"],
-    );
+    let profile_run = run_tool("profile", &["show", profile_str, "--json", "--no-witness"]);
     assert!(
         profile_run.success(),
         "profile show failed (exit {:?}): {}",
@@ -556,10 +716,7 @@ fn test_full_evidence_pipeline() {
     );
 
     // 6. pack verify — verify the evidence pack is intact.
-    let verify_run = run_tool(
-        "pack",
-        &["verify", pack_dir_str, "--no-witness"],
-    );
+    let verify_run = run_tool("pack", &["verify", pack_dir_str, "--no-witness"]);
     assert!(
         verify_run.success(),
         "pack verify failed (exit {:?}): {}",
@@ -569,6 +726,25 @@ fn test_full_evidence_pipeline() {
 }
 
 // ── Helper: run_tool with extra environment variables ────────────────────────
+
+fn composite_consumer_binary(name: &str) -> Option<String> {
+    let env_name = format!("SPINE_{}_BIN", name.to_ascii_uppercase().replace('-', "_"));
+    if let Some(path) = std::env::var_os(env_name) {
+        return Some(path.to_string_lossy().into_owned());
+    }
+
+    let sibling = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(name)
+        .join("target")
+        .join("debug")
+        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+    if sibling.is_file() {
+        return Some(sibling.to_string_lossy().into_owned());
+    }
+
+    find_binary(name)
+}
 
 fn run_tool_with_env(binary: &str, args: &[&str], env_vars: &[(&str, &str)]) -> ToolRun {
     use std::process::{Command, Stdio};

@@ -93,29 +93,36 @@ pub fn run_tool_with_stdin(binary: &str, args: &[&str], stdin_bytes: &[u8]) -> T
 
 /// Pipe `tool_a` stdout into `tool_b` stdin (streaming, no intermediate file).
 ///
-/// Returns the [`ToolRun`] for `tool_b`. If `tool_a` fails to start, panics.
-pub fn pipe_tools(
-    bin_a: &str,
-    args_a: &[&str],
-    bin_b: &str,
-    args_b: &[&str],
-) -> ToolRun {
-    let child_a = Command::new(bin_a)
+/// Returns the [`ToolRun`] for `tool_b` and always reaps `tool_a`.
+/// If either tool fails to start, panics.
+pub fn pipe_tools(bin_a: &str, args_a: &[&str], bin_b: &str, args_b: &[&str]) -> ToolRun {
+    let mut child_a = Command::new(bin_a)
         .args(args_a)
         .env_remove("EPISTEMIC_WITNESS")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
         .unwrap_or_else(|e| panic!("Failed to spawn {} {:?}: {}", bin_a, args_a, e));
+    let child_a_stdout = child_a.stdout.take().expect("child_a stdout must be piped");
 
     let output_b = Command::new(bin_b)
         .args(args_b)
         .env_remove("EPISTEMIC_WITNESS")
-        .stdin(child_a.stdout.expect("child_a stdout must be piped"))
+        .stdin(child_a_stdout)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
-        .unwrap_or_else(|e| panic!("Failed to run {} {:?}: {}", bin_b, args_b, e));
+        .output();
+    let output_b = match output_b {
+        Ok(output) => output,
+        Err(error) => {
+            let _ = child_a.kill();
+            let _ = child_a.wait();
+            panic!("Failed to run {bin_b} {args_b:?}: {error}");
+        }
+    };
+    child_a
+        .wait()
+        .unwrap_or_else(|error| panic!("Failed to reap {bin_a} {args_a:?}: {error}"));
 
     ToolRun {
         code: output_b.status.code(),
@@ -140,11 +147,10 @@ pub fn parse_jsonl(stdout: &[u8]) -> Vec<serde_json::Value> {
 
 /// Parse a single JSON object from bytes.
 pub fn parse_json(stdout: &[u8]) -> serde_json::Value {
-    serde_json::from_slice(stdout)
-        .unwrap_or_else(|e| {
-            let text = String::from_utf8_lossy(stdout);
-            panic!("Invalid JSON: {e}\n  input: {text}")
-        })
+    serde_json::from_slice(stdout).unwrap_or_else(|e| {
+        let text = String::from_utf8_lossy(stdout);
+        panic!("Invalid JSON: {e}\n  input: {text}")
+    })
 }
 
 /// Early-return macro that skips a test (with a message) if any of the

@@ -19,6 +19,7 @@
 //! }
 //! ```
 
+pub mod composite_key;
 pub mod helpers;
 #[doc(hidden)]
 pub mod macros;

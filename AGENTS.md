@@ -18,6 +18,7 @@
 ```
 src/
   lib.rs       — re-exports
+  composite_key.rs — ordered-tuple fixtures and consumer conformance assertions
   macros.rs    — golden_rules_suite! (macro_rules!, not proc_macro)
   helpers.rs   — assertion functions (the real logic)
   types.rs     — OperatorManifest serde types

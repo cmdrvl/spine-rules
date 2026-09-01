@@ -8,6 +8,7 @@ One crate, one update, all 13 tools enforced.
 
 - **`golden_rules_suite!`** macro — generates integration tests from ~20 lines of config
 - **Assertion helpers** — debuggable, standalone functions for each rule (R-001 through R-022)
+- **Composite-key conformance** — reusable ordered-tuple fixtures and JSON output assertions for `shape` / `rvl`
 - **`operator.v0` types** — serde structs for operator.json manifests
 - **ast-grep rules** — static analysis YAML rules for exit codes, HashMap, and witness safety
 
@@ -46,6 +47,30 @@ golden_rules_suite! {
     ],
 }
 ```
+
+## Composite-key conformance
+
+Composite row identity is an ordered tuple of raw byte strings. Consumers must:
+
+- ASCII-trim spaces and tabs from each component independently
+- treat a tuple as incomplete when any trimmed component is empty
+- keep strings such as `NA`, `N/A`, `NULL`, and `null` as literal key bytes
+- compare equality and ordering lexicographically over component byte strings
+- keep component boundaries structural; never flatten identity through a sentinel-delimited string
+- expose encoded component arrays as the authoritative machine value; a joined label is display-only
+
+Use the shared assertion with an adapter around the consumer's internal key constructor:
+
+```rust
+use spine_rules::composite_key::assert_ordered_tuple_semantics;
+
+#[test]
+fn composite_keys_follow_the_spine_contract() {
+    assert_ordered_tuple_semantics(|components| build_consumer_key(components));
+}
+```
+
+For JSON output, `assert_authoritative_key_output` checks both the authoritative component array and its derived display label. `shape` should apply it to `key_columns` / `key_column`; `rvl` should apply it to `key_columns` / `key_column`, `row_key` / `row_id`, and refusal `key_values` / `key` pairs where present. The live pipeline test accepts `SPINE_SHAPE_BIN` and `SPINE_RVL_BIN`, otherwise preferring sibling debug builds and then `PATH`.
 
 ## Generated tests
 
