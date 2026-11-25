@@ -1,0 +1,26 @@
+# Reusable cargo-deny core for every public CMD+RVL operator repo
+# (canon, shape, rvl, fingerprint, profile, verify, benchmark, twinning, decoding, crucible).
+# Copy to `deny.toml` at the repo root and run:
+#
+#   cargo deny check bans sources
+#
+# It bans the private runtime and every git source you have not listed. Operator repos
+# take spine-rules (and sometimes evidence-protocol) as git dependencies, so those two
+# are the only allowed git sources; add another cmdrvl repo here only when you depend on it.
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+  { name = "evidence-machine", reason = "private runtime; nothing public may depend on it" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Nothing under github.com/SaltIO/ is allowed: it is not on this list, so it is denied.
+allow-git = [
+  "https://github.com/cmdrvl/spine-rules",
+  "https://github.com/cmdrvl/evidence-protocol",
+]

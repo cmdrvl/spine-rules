@@ -113,6 +113,10 @@ Generated tests: `family_doctor_{health,capabilities,triage}_conforms`, `family_
 
 `0` positive, `1` negative, `expected_change` or `unhealthy` (always declared: every tool has `doctor`), `2` error (refusal / CLI error), `3` `policy` (valid verdict distinct from refusal, e.g. `assess` BLOCK). Diff-style tools whose `1` is expected must offer `--exit-zero-on-change`; `--exit-zero-on-change` never affects `doctor`; read/query commands exit `0` and print `[]` on an empty result; the canonical `assess` band table is in the ADR; `doctor` exits `1` when unhealthy. Full contract and migration notes: [`docs/exit-codes.md`](docs/exit-codes.md). Opt-in test: `fixture_empty_query_args` -> `family_empty_query_exits_zero`.
 
+## Three layers, one-way dependencies
+
+The Evidence Protocol is split across three layers. [`evidence-protocol`](https://github.com/cmdrvl/evidence-protocol) (public) owns the `*.v0` wire types, schemas and fixtures. `spine-rules` (this crate, public) owns the conformance rules and `operator.v0`, and it only consumes `evidence-protocol` (`src/protocol.rs`; a test fails if this crate declares a protocol wire type). `evidence-machine` (private) is the runtime and depends on both. Dependencies only point one way: `evidence-machine` -> `spine-rules` -> `evidence-protocol`, and nothing public may depend on `evidence-machine`. `deny.toml` enforces the ban and a negative test proves it (a manifest that adds `evidence-machine` fails `cargo deny check bans`); [`docs/deny-template.toml`](docs/deny-template.toml) is the same core for operator repos. Protocol rules so far: `check_answer_coverage` (`answer.v0` coverage reconciles, for the `em-36x` sealer); rules are added only as consumers appear.
+
 ## Zero-retention conformance (`assert_no_raw_cell_leak`)
 
 Any tool that reads cell data and may run under `veil` must print no raw cell values unless `--explicit` is passed. This is opt-in per tool, so existing suites are unchanged. Add a fixture whose cells hold canary strings and pass both fields (last in the macro):

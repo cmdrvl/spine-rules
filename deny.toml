@@ -1,0 +1,20 @@
+# cargo-deny configuration for spine-rules: the mechanical half of the Evidence Protocol
+# dependency boundary. spine-rules CONSUMES the public evidence-protocol crate; it must
+# never depend on the private runtime. See docs/deny-template.toml for the reusable core.
+#
+#   cargo deny check bans sources
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+  { name = "evidence-machine", reason = "private runtime; nothing public may depend on it" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# The one git source this crate needs. Anything else, in particular anything under
+# github.com/SaltIO/, is an unknown git source and is denied.
+allow-git = ["https://github.com/cmdrvl/evidence-protocol"]

@@ -10,6 +10,9 @@ keywords = ["spine", "testing", "golden-rules", "cli"]
 categories = ["development-tools::testing"]
 
 [dependencies]
+# The Evidence Protocol wire types live in their own public crate; this crate only
+# consumes them (conformance rules, src/protocol.rs). Git tag, never a path dependency.
+evidence-protocol = { version = "0.5.1", git = "https://github.com/cmdrvl/evidence-protocol", tag = "v0.5.1" }
 blake3 = "1.8"
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }

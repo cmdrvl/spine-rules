@@ -1,0 +1,21 @@
+name: dependency boundary
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans sources
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo install cargo-deny --locked
+      - run: cargo test

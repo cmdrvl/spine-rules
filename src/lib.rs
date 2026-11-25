@@ -29,5 +29,6 @@ pub mod lockfile;
 #[doc(hidden)]
 pub mod macros;
 pub mod pipeline;
+pub mod protocol;
 pub mod redaction;
 pub mod types;
