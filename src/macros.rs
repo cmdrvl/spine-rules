@@ -13,6 +13,12 @@
 /// - `fixture_csv`: path to a CSV input file for row-count test
 /// - `fixture_csv_args`: args for the CSV row-count run (must accompany `fixture_csv`)
 /// - `exit_code_1_required`: set to `false` for tools without a negative domain (default: true)
+/// - `fixture_empty_query_args`: a valid read/query that matches nothing (must exit 0)
+/// - `fixture_canary_args` + `fixture_canaries` (together, last): OPT IN to the zero-retention
+///   check. `fixture_canary_args` runs the tool, WITHOUT `--explicit`, on a fixture whose
+///   cells hold the strings in `fixture_canaries`; none may appear in stdout or stderr.
+///   A control run with `--explicit` must show at least one, and `operator.json` must
+///   declare `--explicit`. Tools without this pair are unaffected. See [`crate::redaction`].
 ///
 /// # Example
 ///
@@ -42,7 +48,26 @@ macro_rules! golden_rules_suite {
         $(required_subcommands: $required_subs:expr,)?
         $(fixture_timestamped_args: $timestamped_args:expr,)?
         $(fixture_empty_query_args: $empty_query_args:expr,)?
+        $(fixture_canary_args: $canary_args:expr, fixture_canaries: $canaries:expr,)?
     ) => {
+        // ── Zero-retention: no raw cell values without --explicit (opt-in) ──
+        $(
+            #[test]
+            fn family_no_raw_cell_leak_by_default() {
+                $crate::redaction::assert_explicit_declared($operator_json);
+                $crate::redaction::assert_no_raw_cell_leak($binary, $canary_args, $canaries);
+            }
+
+            #[test]
+            fn family_explicit_reveals_canaries() {
+                $crate::redaction::assert_canaries_visible_with_explicit(
+                    $binary,
+                    $canary_args,
+                    $canaries,
+                );
+            }
+        )?
+
         // ── Empty read/query result is exit 0, never 1 ──────────────────
         $(
             #[test]

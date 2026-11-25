@@ -113,6 +113,22 @@ Generated tests: `family_doctor_{health,capabilities,triage}_conforms`, `family_
 
 `0` positive, `1` negative, `expected_change` or `unhealthy` (always declared: every tool has `doctor`), `2` error (refusal / CLI error), `3` `policy` (valid verdict distinct from refusal, e.g. `assess` BLOCK). Diff-style tools whose `1` is expected must offer `--exit-zero-on-change`; `--exit-zero-on-change` never affects `doctor`; read/query commands exit `0` and print `[]` on an empty result; the canonical `assess` band table is in the ADR; `doctor` exits `1` when unhealthy. Full contract and migration notes: [`docs/exit-codes.md`](docs/exit-codes.md). Opt-in test: `fixture_empty_query_args` -> `family_empty_query_exits_zero`.
 
+## Zero-retention conformance (`assert_no_raw_cell_leak`)
+
+Any tool that reads cell data and may run under `veil` must print no raw cell values unless `--explicit` is passed. This is opt-in per tool, so existing suites are unchanged. Add a fixture whose cells hold canary strings and pass both fields (last in the macro):
+
+```rust
+golden_rules_suite! {
+    // ...existing fields...
+    fixture_canary_args: &["run", "rules.json", "--bind", "input=tests/fixtures/canary.csv", "--json", "--no-witness"],
+    fixture_canaries: &["CANARY-LOAN-0f3a91", "CANARY-BAL-77c2d4"],
+}
+```
+
+This generates `family_no_raw_cell_leak_by_default` (no canary in stdout or stderr of that run, `--explicit` absent from the args, and `operator.json` declares `options[].flag = "--explicit"` so `veil` can ban it by name) and `family_explicit_reveals_canaries` (a control: with `--explicit` at least one canary does appear, so a fixture the tool never prints cannot pass for the wrong reason). A run that prints nothing, or a canary shorter than 8 bytes, fails.
+
+What it proves: none of those strings appear on either stream of that one invocation. What it does not prove: that other commands or failure paths are clean, that a hashed or truncated form of a low-entropy value is unguessable, or that column names are safe (list them as canaries to check them). Use a failing or refusing invocation as `fixture_canary_args`, since failure output is where leaks hide.
+
 ## Generated tests
 
 | Test | Rule | When |

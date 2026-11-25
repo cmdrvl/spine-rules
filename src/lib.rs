@@ -28,4 +28,5 @@ pub mod helpers;
 #[doc(hidden)]
 pub mod macros;
 pub mod pipeline;
+pub mod redaction;
 pub mod types;
