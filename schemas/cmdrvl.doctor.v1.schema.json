@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cmdrvl/spine-rules/schemas/cmdrvl.doctor.v1.schema.json",
+  "title": "cmdrvl.doctor.v1",
+  "description": "Family doctor report for `<tool> doctor --json` (health), `doctor capabilities --json` and `doctor triage --json`. doctor::DoctorReport::validate() in spine-rules is authoritative; JSON Schema cannot express unique finding ids, `contract` passing the full operator.v1 validate(), or contract.name/tool_version equalling tool/tool_version.",
+  "type": "object",
+  "required": ["schema_version", "mode", "tool", "tool_version", "healthy", "findings"],
+  "properties": {
+    "schema_version": { "const": "cmdrvl.doctor.v1" },
+    "mode": { "enum": ["health", "capabilities", "triage"] },
+    "tool": { "type": "string", "minLength": 1 },
+    "tool_version": { "type": "string" },
+    "healthy": { "type": "boolean" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "message"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "severity": { "enum": ["info", "warning", "error"] },
+          "message": { "type": "string" },
+          "fix": { "type": "string" }
+        }
+      }
+    },
+    "contract": {
+      "type": "object",
+      "description": "The operator.v1 document, identical to `capabilities --json`. Validate it with operator.v1.schema.json.",
+      "required": ["schema_version"],
+      "properties": { "schema_version": { "const": "operator.v1" } }
+    },
+    "next_actions": { "type": "array", "items": { "type": "string" } }
+  },
+  "allOf": [
+    {
+      "description": "healthy is false exactly when an error finding exists.",
+      "if": { "properties": { "findings": { "contains": { "required": ["severity"], "properties": { "severity": { "const": "error" } } } } } },
+      "then": { "properties": { "healthy": { "const": false } } },
+      "else": { "properties": { "healthy": { "const": true } } }
+    },
+    {
+      "if": { "properties": { "mode": { "const": "capabilities" } }, "required": ["mode"] },
+      "then": { "required": ["contract"] },
+      "else": { "not": { "required": ["contract"] } }
+    },
+    {
+      "if": { "properties": { "mode": { "const": "triage" } }, "required": ["mode"] },
+      "then": { "required": ["next_actions"] },
+      "else": { "not": { "required": ["next_actions"] } }
+    },
+    {
+      "description": "An unhealthy triage report must say what to do next.",
+      "if": { "properties": { "mode": { "const": "triage" }, "healthy": { "const": false } }, "required": ["mode", "healthy"] },
+      "then": { "properties": { "next_actions": { "minItems": 1 } } }
+    }
+  ]
+}

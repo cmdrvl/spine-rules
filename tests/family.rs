@@ -136,6 +136,7 @@ fn doctor_contract_runs_real_binary() {
         "case \"$*\" in\n\
          'doctor --json') cat <<'E'\n{}\nE\n ;;\n\
          'doctor capabilities --json') cat <<'E'\n{}\nE\n ;;\n\
+         'capabilities --json') cat <<'E'\n{}\nE\n ;;\n\
          'doctor triage --json') cat <<'E'\n{}\nE\n exit 1 ;;\n\
          esac",
         report("health", true, ""),
@@ -144,6 +145,7 @@ fn doctor_contract_runs_real_binary() {
             true,
             &format!(r#","contract":{}"#, CONTRACT.replace('\n', " "))
         ),
+        CONTRACT.replace('\n', " "),
         report("triage", false, r#","next_actions":["demo doctor --fix"]"#),
     );
     let bin = script(&dir, "demo", &body);
@@ -254,4 +256,154 @@ fn bare_invocation_that_never_exits_is_caught() {
     let dir = tempfile::tempdir().unwrap();
     let bin = script(&dir, "hang", "sleep 30");
     run_with_timeout(&bin, &[], Duration::from_millis(300));
+}
+
+// ── contract embedded in doctor == capabilities --json ──────────────────
+
+use spine_rules::doctor::{DOCTOR_V1_SCHEMA, check_contract_equals_capabilities};
+
+#[test]
+fn embedded_contract_must_equal_capabilities_document() {
+    let caps = CONTRACT.replace('\n', " ");
+    let good = report("capabilities", true, &format!(r#","contract":{caps}"#));
+    assert!(check_contract_equals_capabilities(good.as_bytes(), caps.as_bytes()).is_empty());
+
+    // Embedded copy is valid on its own but is not what `capabilities --json` prints.
+    let other = caps
+        .replace("\"Demo\"", "\"x\"")
+        .replace("\"d\"", "\"different\"");
+    let v = check_contract_equals_capabilities(good.as_bytes(), other.as_bytes()).join("\n");
+    assert!(v.contains("differs"), "{v}");
+
+    let no_contract = report("capabilities", true, "");
+    let v = check_contract_equals_capabilities(no_contract.as_bytes(), caps.as_bytes()).join("\n");
+    assert!(v.contains("no `contract`"), "{v}");
+}
+
+#[test]
+#[should_panic(expected = "differs from `capabilities --json`")]
+fn real_binary_with_diverging_doctor_contract_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let caps = CONTRACT.replace('\n', " ");
+    let embedded = caps.replace("\"d\"", "\"stale copy\"");
+    let body = format!(
+        "case \"$*\" in\n\
+         'doctor capabilities --json') cat <<'E'\n{}\nE\n ;;\n\
+         'capabilities --json') cat <<'E'\n{}\nE\n ;;\n\
+         esac",
+        report("capabilities", true, &format!(r#","contract":{embedded}"#)),
+        caps,
+    );
+    let bin = script(&dir, "demo", &body);
+    assert_doctor_contract(&bin, DoctorMode::Capabilities);
+}
+
+// ── cmdrvl.doctor.v1 schema ─────────────────────────────────────────────
+
+fn doctor_schema_accepts(doc: &str) -> bool {
+    let schema: serde_json::Value = serde_json::from_str(DOCTOR_V1_SCHEMA).unwrap();
+    let validator = jsonschema::validator_for(&schema).expect("doctor schema compiles");
+    validator.is_valid(&serde_json::from_str::<serde_json::Value>(doc).unwrap())
+}
+
+#[test]
+fn doctor_schema_matches_struct() {
+    let schema: serde_json::Value = serde_json::from_str(DOCTOR_V1_SCHEMA).unwrap();
+    let props: std::collections::BTreeSet<String> = schema["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    let required: std::collections::BTreeSet<String> = schema["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+
+    // Every key the struct can emit.
+    let full = DoctorReport::parse(&report(
+        "capabilities",
+        true,
+        &format!(r#","contract":{CONTRACT},"next_actions":["a"]"#),
+    ))
+    .unwrap();
+    let mut value = serde_json::to_value(&full).unwrap();
+    value["findings"] = serde_json::json!([{"id":"i","severity":"info","message":"m","fix":"f"}]);
+    let emitted: std::collections::BTreeSet<String> =
+        value.as_object().unwrap().keys().cloned().collect();
+    assert_eq!(
+        props, emitted,
+        "doctor schema properties drifted from struct"
+    );
+
+    let base: serde_json::Value = serde_json::from_str(&report("health", true, "")).unwrap();
+    let mut actually_required = std::collections::BTreeSet::new();
+    for key in base.as_object().unwrap().keys() {
+        let mut d = base.clone();
+        d.as_object_mut().unwrap().remove(key);
+        if DoctorReport::parse(&d.to_string()).is_err() {
+            actually_required.insert(key.clone());
+        }
+    }
+    assert_eq!(
+        required, actually_required,
+        "doctor schema `required` drifted"
+    );
+
+    let finding_props: std::collections::BTreeSet<String> =
+        schema["properties"]["findings"]["items"]["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+    let finding_emitted: std::collections::BTreeSet<String> = value["findings"][0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(finding_props, finding_emitted);
+}
+
+#[test]
+fn doctor_schema_and_validate_agree() {
+    let contract = CONTRACT.replace('\n', " ");
+    let accepted = [
+        report("health", true, ""),
+        report("health", false, ""),
+        report("capabilities", true, &format!(r#","contract":{contract}"#)),
+        report("triage", false, r#","next_actions":["demo doctor --fix"]"#),
+    ];
+    for doc in &accepted {
+        assert!(doctor_schema_accepts(doc), "schema rejected {doc}");
+        assert!(
+            DoctorReport::parse(doc).unwrap().validate().is_empty(),
+            "{doc}"
+        );
+    }
+
+    let rejected = [
+        // healthy contradicts an error finding
+        report("health", false, "").replace("\"healthy\":false", "\"healthy\":true"),
+        // capabilities without contract
+        report("capabilities", true, ""),
+        // triage without next_actions
+        report("triage", true, ""),
+        // next_actions outside triage
+        report("health", true, r#","next_actions":["x"]"#),
+        // unhealthy triage with empty next_actions
+        report("triage", false, r#","next_actions":[]"#),
+        // contract outside capabilities
+        report("health", true, &format!(r#","contract":{contract}"#)),
+    ];
+    for doc in &rejected {
+        assert!(!doctor_schema_accepts(doc), "schema accepted {doc}");
+        assert!(
+            !DoctorReport::parse(doc).unwrap().validate().is_empty(),
+            "{doc}"
+        );
+    }
 }

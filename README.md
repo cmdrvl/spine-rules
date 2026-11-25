@@ -90,7 +90,13 @@ One schema for all three doctor reports (`spine_rules::doctor::DoctorReport`):
 | `<tool> doctor capabilities --json` | `capabilities` | `contract`: the `operator.v1` document, identical to `capabilities --json` |
 | `<tool> doctor triage --json` | `triage` | `next_actions` (non-empty when unhealthy) |
 
-Fields: `schema_version` (`cmdrvl.doctor.v1`), `mode`, `tool`, `tool_version`, `healthy`, `findings[] {id, severity: info|warning|error, message, fix?}`. `healthy` must equal "no `error` finding". Exit codes: `0` healthy, `1` unhealthy, `2` CLI/usage error only; a parsed unhealthy report is never exit `2`.
+Fields: `schema_version` (`cmdrvl.doctor.v1`), `mode`, `tool`, `tool_version`, `healthy`, `findings[] {id, severity: info|warning|error, message, fix?}`. `healthy` must equal "no `error` finding". Exit codes: `0` healthy, `1` unhealthy, `2` CLI/usage error only; a parsed unhealthy report is never exit `2`. Every tool with `doctor` declares exit `1` in `exit_codes` (see `docs/exit-codes.md`).
+
+### Migrating from today's spellings
+
+The canonical invocations above replace `--robot-triage` and the tool-specific `doctor capabilities` output. They are **additive**: a tool adopts the new spellings and keeps every old spelling working as an alias for at least one full release (old and new emit the same `cmdrvl.doctor.v1` document where the old form was already JSON), so scripts and agents that call `<tool> --robot-triage` or the old `doctor capabilities --json` do not break during fan-out. The new spelling is the one documented in `operator.json`, `robot-docs` and this README; an alias is listed in the command's `description` as deprecated. Aliases are removed no earlier than the release after the one that introduced the canonical form, announced in `CHANGELOG.md`. Old per-tool schema ids (`<tool>.doctor.v1`, `*.doctor.{health,capabilities,triage}.v1`) are replaced by `cmdrvl.doctor.v1` in the same release; consumers should key on `schema_version`. The generated tests only exercise the canonical spellings, so aliases are not enforced here.
+
+JSON Schema for both contracts ships next to the structs: `schemas/operator.v1.schema.json` and `schemas/cmdrvl.doctor.v1.schema.json` (`contract::OPERATOR_V1_SCHEMA`, `doctor::DOCTOR_V1_SCHEMA`). In both cases the Rust `validate()` is authoritative; the schemas express the subset JSON Schema can, and tests run planted documents through schema and `validate()` to keep them in step. In capabilities mode the embedded `contract` must equal `capabilities --json` (`family_doctor_capabilities_conforms` runs both and compares).
 
 ## Family conventions
 
@@ -103,7 +109,7 @@ Generated tests: `family_doctor_{health,capabilities,triage}_conforms`, `family_
 
 ## Exit codes
 
-`0` positive, `1` negative or `expected_change`, `2` error (refusal / CLI error), `3` `policy` (valid verdict distinct from refusal, e.g. `assess` BLOCK). Diff-style tools whose `1` is expected must offer `--exit-zero-on-change`; read/query commands exit `0` on an empty result; `doctor` exits `1` when unhealthy. Full contract and migration notes: [`docs/exit-codes.md`](docs/exit-codes.md). Opt-in test: `fixture_empty_query_args` -> `family_empty_query_exits_zero`.
+`0` positive, `1` negative, `expected_change` or `unhealthy` (always declared: every tool has `doctor`), `2` error (refusal / CLI error), `3` `policy` (valid verdict distinct from refusal, e.g. `assess` BLOCK). Diff-style tools whose `1` is expected must offer `--exit-zero-on-change`; `--exit-zero-on-change` never affects `doctor`; read/query commands exit `0` and print `[]` on an empty result; the canonical `assess` band table is in the ADR; `doctor` exits `1` when unhealthy. Full contract and migration notes: [`docs/exit-codes.md`](docs/exit-codes.md). Opt-in test: `fixture_empty_query_args` -> `family_empty_query_exits_zero`.
 
 ## Generated tests
 

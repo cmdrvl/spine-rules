@@ -20,6 +20,9 @@ use std::process::Command;
 /// `schema_version` of every doctor report.
 pub const DOCTOR_SCHEMA_VERSION: &str = "cmdrvl.doctor.v1";
 
+/// Published JSON Schema for [`DoctorReport`].
+pub const DOCTOR_V1_SCHEMA: &str = include_str!("../schemas/cmdrvl.doctor.v1.schema.json");
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DoctorMode {
@@ -171,13 +174,50 @@ pub fn check_doctor_run(mode: DoctorMode, stdout: &[u8], exit_code: Option<i32>)
     v
 }
 
-/// Run one doctor mode against `binary` and assert it conforms.
+/// Violations when a `doctor capabilities --json` report's embedded
+/// `contract` is not byte-for-byte (as parsed JSON) the `capabilities --json`
+/// document. Compares raw JSON values so no struct normalization can hide drift.
+pub fn check_contract_equals_capabilities(
+    doctor_stdout: &[u8],
+    capabilities_stdout: &[u8],
+) -> Vec<String> {
+    let doctor: serde_json::Value = match serde_json::from_slice(doctor_stdout) {
+        Ok(d) => d,
+        Err(e) => return vec![format!("doctor capabilities stdout is not JSON: {e}")],
+    };
+    let caps: serde_json::Value = match serde_json::from_slice(capabilities_stdout) {
+        Ok(d) => d,
+        Err(e) => return vec![format!("capabilities --json stdout is not JSON: {e}")],
+    };
+    match doctor.get("contract") {
+        None => vec!["doctor capabilities report has no `contract`".into()],
+        Some(c) if *c == caps => Vec::new(),
+        Some(_) => vec![
+            "`contract` embedded in `doctor capabilities --json` differs from `capabilities --json`"
+                .into(),
+        ],
+    }
+}
+
+/// Run one doctor mode against `binary` and assert it conforms. In
+/// capabilities mode the embedded `contract` must also equal
+/// `capabilities --json`.
 pub fn assert_doctor_contract(binary: &str, mode: DoctorMode) {
     let out = Command::new(binary)
         .args(mode.args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run {binary} {:?}: {e}", mode.args()));
-    let v = check_doctor_run(mode, &out.stdout, out.status.code());
+    let mut v = check_doctor_run(mode, &out.stdout, out.status.code());
+    if mode == DoctorMode::Capabilities {
+        let caps = Command::new(binary)
+            .args(["capabilities", "--json"])
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run {binary} capabilities --json: {e}"));
+        v.extend(check_contract_equals_capabilities(
+            &out.stdout,
+            &caps.stdout,
+        ));
+    }
     assert!(
         v.is_empty(),
         "`{binary} {}` violates cmdrvl.doctor.v1:\n  - {}\nstderr: {}",
