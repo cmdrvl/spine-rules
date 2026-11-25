@@ -66,13 +66,16 @@ Parity means: the *typed* source value renders to the same text a CSV writer wou
 | bool | `true` / `false` |
 | JSON nested object/array, Parquet struct/list/map | refuse `E_UNSUPPORTED_VALUE` |
 
-Refused in v0 (the skeleton refuses them, with type name and coordinates only): Parquet decimal, date,
-timestamp, binary, float16; XLSX datetime/duration/error cells. Planned v1 renderings, **not
-implemented**: dates as `YYYY-MM-DD`, timestamps as RFC 3339 UTC with fixed 3/6-digit fraction,
-decimals as exact scale-preserving text, XLSX datetimes via calamine's `dates` feature only when
-the cell is a true Excel date (serial-number ambiguity is the risk), XLSX error cells as the
-literal `#N/A` text behind an opt-in `error_cells = Literal`. Refusing is the right v0 behavior:
-silently guessing a date format is exactly the divergence this crate exists to remove.
+v1 (tabular `91aec2d`, github.com/cmdrvl/tabular) renders what v0 refused. Dates are `YYYY-MM-DD`; timestamps
+`YYYY-MM-DDTHH:MM:SS.fff` / `.ffffff` / `.fffffffff` by source unit (a trailing `Z` only when the column is
+UTC-adjusted, otherwise a naive wall clock); times of day `HH:MM:SS.fff`; decimals are exact scale-preserving
+text (`12.50`, `-0.05`). Column types come from the Parquet schema (the record API hands nanosecond and non-UTC
+timestamps over as bare integers). XLSX datetimes: whole-day serial → date, otherwise a naive millisecond
+timestamp, time-only serial → time of day, 1900 and 1904 systems; refused: serial 60 (Excel's nonexistent
+1900-02-29), serials outside 0–9999-12-31, a time-only serial in a 1904 workbook (ambiguous), durations and error
+cells. Still refused: Parquet binary and nested. Excel cannot tell a date from a midnight datetime, so neither
+can the reader. Expected text is produced by Python `datetime`/`decimal` on pyarrow/openpyxl files, not by the
+crate. The `error_cells = Literal` opt-in sketched earlier was not built.
 
 Known limit: JSON numbers beyond f64/i64 precision lose digits (`serde_json` without
 `arbitrary_precision`). Spine tools that need exact decimals from JSONL must carry them as strings.
@@ -135,9 +138,15 @@ sample, record-count/mode scoring, `E_DIALECT` when ambiguous). `.tsv` pins `\t`
 UTF-16/32 BOM or NUL bytes → `E_ENCODING` (same as shape today). `profile slice` preamble handling
 is passed in as `skip_rows` (physical lines); slice's own encoding directives stay in profile.
 The skeleton implements this and tests every candidate delimiter, pinning, BOM, CRLF, quoted newlines and
-non-UTF-8 bytes. It was written from shape's source and **not run against shape**; two scoring quirks it
-inherits are documented in the crate README (ragged record in the sample refuses `E_DIALECT`; tiny files with
-quoted newlines can pick the wrong delimiter). Shape's owner should confirm both.
+non-UTF-8 bytes. **Reconciled against shape (tabular `11ce182`):** run against shape 0.9.0's real input
+pipeline on its 16 CSV fixtures plus 3,000 generated files, the first pass disagreed on 443 of 3,016. The causes
+were an Excel `sep=<byte>` first line (shape honors it), shape's retry over the whole file when the 64 KiB
+prefix does not decide, the backslash-escape retry for a pinned or `sep=` delimiter, and the NUL scan window
+(8 KiB after the BOM, not 64 KiB). After fixing all four: 0 disagreements. `tests/fixtures/shape/` plus
+`shape.expected.json` (shape's own outcome per file, produced by running shape) keep that checkable. Two
+scoring quirks are shape's own and so also tabular's (ragged record in the sample refuses `E_DIALECT`; tiny
+files with quoted newlines can pick the wrong delimiter). Kept on purpose: `skip_rows` exists only in tabular,
+and a header-only file is `E_EMPTY` from `open` where shape's input layer reports it OK and decides later.
 
 ## Excel sheet selection
 
@@ -233,9 +242,9 @@ Implemented in the skeleton (`tests/conformance.rs`, `tests/refusals.rs`, fixtur
    select, max_rows, no-leak refusal, composite-key contract) all have equivalents in the skeleton. The spike
    directory is left in place; deleting it needs the operator's say-so.
 
-Still to do before Wave 3 signs off: publish fixtures with the crate (tools must not copy them); run the
-detector against `shape`'s own dialect fixtures; `.xls`/`.xlsm` fixtures; XLSX formula and date-cell fixtures.
-Each Wave 3 pane adds one test in its repo: open all five fixtures through its adapter, assert grid equality plus
+Done since the skeleton (bd-q2e): detector run against shape's fixtures; `.xls`/`.xlsm`/formula/merged-cell/brotli
+fixtures; temporal and decimal rendering; streaming; zip-bomb guard; fingerprint compiles on calamine 0.38. Still
+open: publishing fixtures with the crate (tools must not copy them). Each Wave 3 pane adds one test in its repo: open all five fixtures through its adapter, assert grid equality plus
 `assert_ordered_tuple_semantics`.
 
 ## Wave 3 adoption
@@ -252,10 +261,15 @@ Order: tabular v0.1 (CSV, TSV, JSONL, Parquet, XLSX with the v0 type set) → sh
 pair) → the rest. Date/timestamp/decimal rendering (v1) should land before verify/benchmark/canon,
 whose real inputs are typed.
 
-## Not proven (after the skeleton)
+## Not proven (after v1)
 
-Real streaming (v0 materializes); `.xls` (BIFF) and `.xlsm`; Parquet decimal/date/timestamp rendering
-(refused in v0, v1); XLSX dates, formulas, merged cells and streaming; zip-bomb guard; backslash-escaped CSV;
-detector parity against `shape` (re-implemented from its source, two scoring quirks documented in the crate
-README); the DuckDB in-memory path for verify/benchmark; calamine 0.38 against fingerprint's existing code;
-release-binary size and build time of adding parquet (cold build of the spike was about 4 minutes).
+Streaming: CSV/TSV, JSONL (two passes for the header union) and Parquet (one row group at a time) decode lazily
+and refuse mid-stream; a 171 MB, 3,000,000-row CSV read to the end peaked at 2.9 MB resident (measured once, not
+a test). XLSX and `.xls` stay O(sheet) because calamine loads the sheet; Parquet's peak depends on row-group
+size and was not measured. Zip-bomb guard is the declared-size sum (default 2 GiB); a lying header is stopped by
+the `zip` 9.x crate, so upgrading it should re-run `zip_bomb_lying.xlsx`. Files from writers other than pyarrow,
+openpyxl, xlwt, xlsxwriter (Spark, DuckDB, Excel, LibreOffice) have not been through the readers; INT96
+timestamps have no fixture. The DuckDB in-memory path for verify/benchmark; fingerprint on calamine 0.38 compiles
+and passes its 297 lib tests plus the xlsx-touching integration suites in a scratch copy (fingerprint itself is
+unchanged and still pins =0.26.1, adoption is bd-jxd); release-binary size and build time of adding parquet (cold
+build of the spike was about 4 minutes).
