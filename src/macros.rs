@@ -39,7 +39,29 @@ macro_rules! golden_rules_suite {
         $(fixture_refusal_args: $refusal_args:expr,)?
         $(fixture_csv: $csv_path:expr, fixture_csv_args: $csv_args:expr,)?
         $(exit_code_1_required: $require_1:expr,)?
+        $(required_subcommands: $required_subs:expr,)?
     ) => {
+        // ── Family contract: version + subcommand parity ────────────────
+        #[test]
+        fn r006_operator_version_matches_cargo_toml() {
+            $crate::contract::assert_version_parity(
+                $operator_json,
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")),
+            );
+        }
+
+        #[test]
+        fn r006_operator_declares_required_subcommands() {
+            let required: &[&str] = $crate::contract::REQUIRED_SUBCOMMANDS
+                $( ; let _ = required; let required: &[&str] = $required_subs )?;
+            $crate::contract::assert_required_subcommands($operator_json, required);
+        }
+
+        #[test]
+        fn r006_capabilities_json_matches_describe() {
+            $crate::contract::assert_capabilities_match_describe($binary);
+        }
+
         // ── R-002 / R-007: Exit-code trinity ────────────────────────────
         #[test]
         fn r002_r007_exit_codes_trinity() {

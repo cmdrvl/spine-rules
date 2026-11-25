@@ -20,6 +20,7 @@
 //! ```
 
 pub mod composite_key;
+pub mod contract;
 pub mod helpers;
 #[doc(hidden)]
 pub mod macros;

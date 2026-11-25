@@ -72,6 +72,14 @@ fn composite_keys_follow_the_spine_contract() {
 
 For JSON output, `assert_authoritative_key_output` checks both the authoritative component array and its derived display label. `shape` should apply it to `key_columns` / `key_column`; `rvl` should apply it to `key_columns` / `key_column`, `row_key` / `row_id`, and refusal `key_values` / `key` pairs where present. The live pipeline test accepts `SPINE_SHAPE_BIN` and `SPINE_RVL_BIN`, otherwise preferring sibling debug builds and then `PATH`.
 
+## Unified `operator.v1` contract
+
+`spine_rules::contract::OperatorContract` is the one struct behind both `<tool> --describe` (`operator.json`) and `<tool> capabilities --json`. Render both from the same value (`to_canonical_json()`); `golden_rules_suite!` fails if the two outputs differ. The JSON Schema is `schemas/operator.v1.schema.json` (also `contract::OPERATOR_V1_SCHEMA`); a test keeps it in lockstep with the struct.
+
+Required: `schema_version` (`operator.v1`), `name`, `tool_version`, `contract_version`, `description`, `commands`, `exit_codes` (0/1/2 only), `refusals` (`E_*`), `env_vars`, `formats`, `side_effects`, `pipeline`. v0 manifests (`version`, `subcommands`) still parse through serde aliases; only `operator.v1` passes `validate()`.
+
+New generated tests: `r006_operator_version_matches_cargo_toml` (operator version == `Cargo.toml` package version; workspace-inherited versions are rejected), `r006_operator_declares_required_subcommands` (`capabilities`, `robot-docs`, `doctor`; override with `required_subcommands: &[...]`), `r006_capabilities_json_matches_describe`.
+
 ## Generated tests
 
 | Test | Rule | When |

@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cmdrvl/spine-rules/schemas/operator.v1.schema.json",
+  "title": "operator.v1",
+  "description": "Canonical contract for a spine tool. Backs both `<tool> --describe` (operator.json) and `<tool> capabilities --json`; the two must be byte-for-byte the same document.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "name",
+    "tool_version",
+    "contract_version",
+    "description",
+    "commands",
+    "exit_codes",
+    "refusals",
+    "env_vars",
+    "formats",
+    "side_effects",
+    "pipeline"
+  ],
+  "properties": {
+    "schema_version": { "const": "operator.v1" },
+    "name": { "type": "string", "minLength": 1 },
+    "tool_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+].*)?$", "description": "Must equal the Cargo.toml package version." },
+    "contract_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+].*)?$" },
+    "description": { "type": "string", "minLength": 1 },
+    "repository": { "type": "string" },
+    "license": { "type": "string" },
+    "agent_guide": { "type": "string" },
+    "invocation": {
+      "type": "object",
+      "required": ["binary"],
+      "properties": {
+        "binary": { "type": "string" },
+        "usage": { "type": "array", "items": { "type": "string" } },
+        "output_mode": { "type": "string" },
+        "output_schema": { "type": "string" },
+        "json_flag": { "type": "string" }
+      }
+    },
+    "arguments": { "type": "array" },
+    "options": { "type": "array" },
+    "commands": {
+      "type": "array",
+      "description": "Must include capabilities, robot-docs and doctor.",
+      "contains": { "type": "object", "properties": { "name": { "const": "doctor" } }, "required": ["name"] },
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "refusals": { "type": "array", "items": { "$ref": "#/$defs/refusal" } }
+        }
+      }
+    },
+    "exit_codes": {
+      "type": "object",
+      "required": ["0", "2"],
+      "propertyNames": { "enum": ["0", "1", "2"] },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["meaning", "domain"],
+        "properties": { "meaning": { "type": "string" }, "domain": { "type": "string" } }
+      }
+    },
+    "refusals": { "type": "array", "items": { "$ref": "#/$defs/refusal" } },
+    "env_vars": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "description"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Z0-9_]+$" },
+          "description": { "type": "string" },
+          "default": { "type": "string" }
+        }
+      }
+    },
+    "formats": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "side_effects": {
+      "type": "object",
+      "required": ["reads_files", "writes_files", "network", "writes_witness"],
+      "properties": {
+        "reads_files": { "type": "boolean" },
+        "writes_files": { "type": "boolean" },
+        "network": { "type": "boolean" },
+        "writes_witness": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "pipeline": {
+      "type": "object",
+      "required": ["upstream", "downstream"],
+      "properties": {
+        "upstream": { "type": "array", "items": { "type": "string" } },
+        "downstream": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "refusal": {
+      "type": "object",
+      "required": ["code"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^E_" },
+        "message": { "type": "string" },
+        "action": { "type": "string" },
+        "tool": { "type": "string" },
+        "flag": { "type": "string" }
+      }
+    }
+  }
+}
