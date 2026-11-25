@@ -3,49 +3,113 @@
 //! Each function enforces one or more rules from GOLDEN_RULES.md.
 //! The macro in `macros.rs` wires these into `#[test]` functions.
 
+use crate::contract::OperatorContract;
 use crate::types::OperatorManifest;
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
+// ── Manifest view: operator.v1 (strict) or legacy operator.v0 ───────────────
+
+/// The few manifest facts the R-002 / R-007 helpers need, read from whichever
+/// schema the manifest declares. `operator.v1` goes through the strict
+/// [`OperatorContract`] (so legacy spellings such as `version` / `subcommands`
+/// fail even when `schema_version` says v1); `operator.v0` keeps the legacy
+/// types so unmigrated tools still run.
+struct ManifestView {
+    exit_codes: Vec<(String, String)>,
+    option_flags: BTreeSet<String>,
+    has_doctor: bool,
+    refusal_codes: BTreeSet<String>,
+}
+
+fn manifest_view(operator_json: &str) -> ManifestView {
+    let raw: serde_json::Value =
+        serde_json::from_str(operator_json).expect("operator.json must be valid JSON");
+    let flags = |options: &[serde_json::Value]| -> BTreeSet<String> {
+        options
+            .iter()
+            .filter_map(|o| o.get("flag").and_then(|f| f.as_str()).map(str::to_owned))
+            .collect()
+    };
+    match raw.get("schema_version").and_then(|v| v.as_str()) {
+        Some(crate::contract::SCHEMA_VERSION) => {
+            let c = OperatorContract::parse(operator_json)
+                .unwrap_or_else(|e| panic!("operator.v1 manifest is invalid: {e}"));
+            ManifestView {
+                exit_codes: c
+                    .exit_codes
+                    .iter()
+                    .map(|(k, e)| (k.clone(), e.domain.clone()))
+                    .collect(),
+                option_flags: flags(&c.options),
+                has_doctor: c.commands.iter().any(|x| x.name == "doctor"),
+                refusal_codes: c
+                    .refusals
+                    .iter()
+                    .chain(c.commands.iter().flat_map(|x| x.refusals.iter()))
+                    .map(|r| r.code.clone())
+                    .collect(),
+            }
+        }
+        Some("operator.v0") => {
+            let m: OperatorManifest = serde_json::from_str(operator_json)
+                .expect("operator.v0 manifest must match the legacy schema");
+            ManifestView {
+                exit_codes: m
+                    .exit_codes
+                    .iter()
+                    .map(|(k, e)| (k.clone(), e.domain.clone()))
+                    .collect(),
+                option_flags: flags(&m.options),
+                has_doctor: m.subcommands.iter().any(|c| c.name == "doctor"),
+                refusal_codes: m
+                    .refusals
+                    .iter()
+                    .chain(m.subcommands.iter().flat_map(|c| c.refusals.iter()))
+                    .map(|r| r.code.clone())
+                    .collect(),
+            }
+        }
+        other => panic!(
+            "operator.json schema_version {other:?} is unsupported; expected \"operator.v1\" (or legacy \"operator.v0\")"
+        ),
+    }
+}
+
 // ── R-002 / R-007: Exit-code trinity ────────────────────────────────────────
 
-/// Assert operator.json declares exactly exit codes 0, 1, 2.
+/// Assert operator.json declares the family exit-code dictionary
+/// (0/1/2, and 3 only as a `policy` verdict).
 ///
-/// If `require_1` is false (e.g. vacuum), exit code 1 is optional.
+/// If `require_1` is false (e.g. vacuum), exit code 1 is optional unless the
+/// tool declares `doctor` (then the dictionary check requires it anyway).
 pub fn assert_exit_codes_trinity(operator_json: &str, require_1: bool) {
-    let manifest: OperatorManifest =
-        serde_json::from_str(operator_json).expect("operator.json must be valid JSON");
+    let view = manifest_view(operator_json);
+    let has = |code: &str| view.exit_codes.iter().any(|(k, _)| k == code);
 
     assert!(
-        manifest.exit_codes.contains_key("0"),
+        has("0"),
         "R-002/R-007: operator.json must declare exit code 0"
     );
     if require_1 {
         assert!(
-            manifest.exit_codes.contains_key("1"),
+            has("1"),
             "R-002/R-007: operator.json must declare exit code 1"
         );
     }
     assert!(
-        manifest.exit_codes.contains_key("2"),
+        has("2"),
         "R-002/R-007: operator.json must declare exit code 2"
     );
 
-    // 0/1/2 are the trinity; 3 is permitted only as a documented `policy`
-    // verdict (docs/exit-codes.md). Everything else is a violation.
-    let pairs: Vec<(&str, &str)> = manifest
+    let pairs: Vec<(&str, &str)> = view
         .exit_codes
         .iter()
-        .map(|(k, e)| (k.as_str(), e.domain.as_str()))
+        .map(|(k, d)| (k.as_str(), d.as_str()))
         .collect();
-    let flags: BTreeSet<String> = manifest
-        .options
-        .iter()
-        .filter_map(|o| o.get("flag").and_then(|f| f.as_str()).map(str::to_owned))
-        .collect();
-    let has_doctor = manifest.subcommands.iter().any(|c| c.name == "doctor");
-    let violations = crate::exit_codes::check_exit_codes(&pairs, &flags, has_doctor);
+    let violations =
+        crate::exit_codes::check_exit_codes(&pairs, &view.option_flags, view.has_doctor);
     assert!(
         violations.is_empty(),
         "R-002 VIOLATION: operator.json exit codes break the family dictionary:\n  - {}",
@@ -55,25 +119,10 @@ pub fn assert_exit_codes_trinity(operator_json: &str, require_1: bool) {
 
 // ── R-007: Refusal codes match source ───────────────────────────────────────
 
-/// Collect all E_ codes declared in operator.json (including subcommand refusals).
+/// Collect all E_ codes declared in operator.json (including subcommand/command refusals).
+/// A tool with no refusal envelope declares `refusals: []` and yields an empty set.
 pub fn collect_refusal_codes_from_manifest(operator_json: &str) -> BTreeSet<String> {
-    let manifest: OperatorManifest =
-        serde_json::from_str(operator_json).expect("operator.json must be valid JSON");
-
-    let mut codes = BTreeSet::new();
-
-    for entry in &manifest.refusals {
-        codes.insert(entry.code.clone());
-    }
-
-    // Also collect from subcommand refusals (e.g. lock verify).
-    for sub in &manifest.subcommands {
-        for entry in &sub.refusals {
-            codes.insert(entry.code.clone());
-        }
-    }
-
-    codes
+    manifest_view(operator_json).refusal_codes
 }
 
 /// Truncate source at the `#[cfg(test)]` module boundary.
@@ -128,6 +177,12 @@ pub fn assert_refusal_codes_match_source(
     manifest_dir: &str,
 ) {
     let declared = collect_refusal_codes_from_manifest(operator_json);
+    for code in &declared {
+        assert!(
+            code.starts_with("E_"),
+            "R-007 VIOLATION: refusal code '{code}' must start with E_"
+        );
+    }
 
     let mut combined_source = String::new();
     for file in source_files {

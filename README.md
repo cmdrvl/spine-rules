@@ -78,6 +78,8 @@ For JSON output, `assert_authoritative_key_output` checks both the authoritative
 
 Required: `schema_version` (`operator.v1`), `name`, `tool_version`, `contract_version`, `description`, `commands`, `exit_codes` (0/1/2 only), `refusals` (`E_*`), `env_vars`, `formats`, `side_effects`, `pipeline`. v0 manifests (`version`, `subcommands`) still parse through serde aliases; only `operator.v1` passes `validate()`.
 
+Parsing is strict: only the canonical spellings (`tool_version`, `commands`, `refusals`) are accepted, so a file that keeps the legacy spellings (`version`, `subcommands`) but declares `operator.v1` fails. The R-002/R-007 helpers read `operator.v1` manifests through `OperatorContract` and keep the legacy path only for `operator.v0` manifests. A tool with no refusal envelope declares `refusals: []`.
+
 New generated tests: `r006_operator_version_matches_cargo_toml` (operator version == `Cargo.toml` package version; workspace-inherited versions are rejected), `r006_operator_declares_required_subcommands` (`capabilities`, `robot-docs`, `doctor`; override with `required_subcommands: &[...]`), `r006_capabilities_json_matches_describe`.
 
 ## Doctor contract (`cmdrvl.doctor.v1`)

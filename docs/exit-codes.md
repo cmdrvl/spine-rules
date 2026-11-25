@@ -63,6 +63,11 @@ only `positive`/`negative`/`error` on 0/1/2 today already conforms.
   never exit `1` for an empty result set: exit `0` and print exactly `[]`. The test asserts the
   empty array, not just valid JSON. Opt-in via `fixture_empty_query_args`; tools with a query
   subcommand must opt in (`verify` must, for `witness query`).
+- **No verdict, no refusal envelope** (e.g. `veil`). Declare `refusals: []`; an empty list is
+  legal and the R-007 source check then requires that the tool's production source contains no
+  `"E_..."` literal. Exit `1` is declared with domain `unhealthy`, `0` and `2` as usual. Any
+  declared refusal code must start with `E_` (`validate()` and the source check both enforce it);
+  a non-`E_` code is never legal, empty or not.
 - **Doctor.** `doctor` exits `0` healthy, `1` unhealthy (an `error` finding), `2` usage errors
   only. See the doctor contract in the README.
 - **Where the code comes from.** Use the tool's `ExitCode` enum or return from `run()`; do not

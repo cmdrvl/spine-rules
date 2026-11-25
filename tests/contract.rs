@@ -43,21 +43,26 @@ fn good_contract_is_valid_and_round_trips() {
 }
 
 #[test]
-fn v0_aliases_parse_but_fail_validation() {
-    let v0 = r#"{
-      "schema_version": "operator.v0", "name": "old", "version": "0.8.0",
-      "description": "d", "subcommands": [{"name": "doctor"}],
-      "exit_codes": {"0": {"meaning": "OK", "domain": "positive"}, "2": {"meaning": "R", "domain": "error"}},
-      "refusals": [], "env_vars": [], "formats": ["csv"], "contract_version": "1.0.0",
-      "side_effects": {"reads_files": true, "writes_files": false, "network": false, "writes_witness": false},
-      "pipeline": {"upstream": [], "downstream": []}
-    }"#;
-    let c = OperatorContract::parse(v0).unwrap();
-    assert_eq!(c.tool_version, "0.8.0");
-    let v = c.validate().join("\n");
-    assert!(v.contains("schema_version"), "{v}");
-    assert!(v.contains("\"capabilities\""), "{v}");
-    assert!(v.contains("\"robot-docs\""), "{v}");
+fn legacy_spellings_do_not_parse_as_operator_v1() {
+    // v0 spellings (`version`, `subcommands`) are not accepted by the strict contract,
+    // whatever schema_version claims.
+    for sv in ["operator.v0", "operator.v1"] {
+        let legacy = format!(
+            r#"{{
+          "schema_version": "{sv}", "name": "old", "version": "0.8.0",
+          "description": "d", "subcommands": [{{"name": "doctor"}}],
+          "exit_codes": {{"0": {{"meaning": "OK", "domain": "positive"}}, "2": {{"meaning": "R", "domain": "error"}}}},
+          "refusals": [], "env_vars": [], "formats": ["csv"], "contract_version": "1.0.0",
+          "side_effects": {{"reads_files": true, "writes_files": false, "network": false, "writes_witness": false}},
+          "pipeline": {{"upstream": [], "downstream": []}}
+        }}"#
+        );
+        let err = OperatorContract::parse(&legacy).unwrap_err();
+        assert!(
+            err.contains("tool_version") || err.contains("commands"),
+            "{sv}: {err}"
+        );
+    }
 }
 
 #[test]

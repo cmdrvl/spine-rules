@@ -6,9 +6,11 @@
 //! is the executable definition of the contract; `schemas/operator.v1.schema.json`
 //! is the published JSON Schema and is kept in lockstep with the struct by a test.
 //!
-//! v0 manifests (`schema_version: "operator.v0"`, `version`, `subcommands`) still
-//! parse through serde aliases so consumers can migrate incrementally, but
-//! [`OperatorContract::validate`] only accepts `operator.v1`.
+//! Parsing is strict: the canonical spellings are `tool_version`, `commands` and
+//! `refusals`. Legacy spellings (`version`, `subcommands`, `error_kinds`) are NOT
+//! accepted, so a legacy-spelling manifest that merely declares
+//! `schema_version: "operator.v1"` fails. Unmigrated `operator.v0` manifests are
+//! handled only by the legacy helpers in `helpers.rs`.
 //!
 //! All maps are `BTreeMap` for deterministic serialization (R-005).
 
@@ -30,7 +32,6 @@ pub struct OperatorContract {
     pub schema_version: String,
     pub name: String,
     /// The tool's own release version; must equal the `Cargo.toml` package version.
-    #[serde(alias = "version")]
     pub tool_version: String,
     /// Version of the family contract the tool conforms to (semver).
     pub contract_version: String,
@@ -47,10 +48,8 @@ pub struct OperatorContract {
     pub arguments: Vec<serde_json::Value>,
     #[serde(default)]
     pub options: Vec<serde_json::Value>,
-    #[serde(alias = "subcommands")]
     pub commands: Vec<Command>,
     pub exit_codes: BTreeMap<String, ExitCode>,
-    #[serde(alias = "error_kinds")]
     pub refusals: Vec<Refusal>,
     pub env_vars: Vec<EnvVar>,
     pub formats: Vec<String>,

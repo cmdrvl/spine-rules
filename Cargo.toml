@@ -1,6 +1,6 @@
 [package]
 name = "spine-rules"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 description = "Shared golden-rules enforcement for CMD+RVL spine tools"
 license = "MIT"
