@@ -1,8 +1,8 @@
-# cmdrvl-tabular — design (bd-e0g)
+# cmdrvl-tabular — design
 
-Status: design + local skeleton. Skeleton: `/Users/zac/Source/cmdrvl/tabular` (crate `cmdrvl-tabular`,
-local git repo, no remote, repo decision pending with the operator; 44 passing tests over real files in
-all five formats). Throwaway spike: `spikes/tabular-spike/` (superseded by the skeleton, see Conformance).
+Status: design + v0 skeleton, pre-1.0, API may change. Implementation: <https://github.com/cmdrvl/tabular>
+(crate `cmdrvl-tabular`, not on crates.io; 44 passing tests over real files in all five formats).
+Throwaway spike: `spikes/tabular-spike/` (superseded by the skeleton, see Conformance).
 Things the skeleton does not cover are marked **unproven**; the skeleton README lists them.
 Crate versions were checked on crates.io on 2026-11-24.
 
