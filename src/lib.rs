@@ -25,6 +25,7 @@ pub mod conventions;
 pub mod doctor;
 pub mod exit_codes;
 pub mod helpers;
+pub mod lockfile;
 #[doc(hidden)]
 pub mod macros;
 pub mod pipeline;
