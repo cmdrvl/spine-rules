@@ -195,7 +195,11 @@ impl OperatorContract {
             .iter()
             .filter_map(|o| o.get("flag").and_then(|f| f.as_str()).map(str::to_owned))
             .collect();
-        v.extend(crate::exit_codes::check_exit_codes(&pairs, &flags));
+        v.extend(crate::exit_codes::check_exit_codes(
+            &pairs,
+            &flags,
+            self.commands.iter().any(|c| c.name == "doctor"),
+        ));
 
         let mut codes = BTreeSet::new();
         for r in self
@@ -323,6 +327,15 @@ pub fn assert_required_subcommands(operator_json: &str, required: &[&str]) {
         missing.is_empty(),
         "operator.json is missing required subcommands {missing:?}; declared: {have:?}"
     );
+}
+
+/// Parse `operator.json` and assert it satisfies the whole `operator.v1`
+/// contract (`validate()`): schema_version, env_vars, side_effects, pipeline,
+/// formats, `E_` refusals, exit-code dictionary, required subcommands.
+pub fn assert_operator_valid(operator_json: &str) {
+    OperatorContract::parse(operator_json)
+        .unwrap_or_else(|e| panic!("operator.json does not parse as operator.v1: {e}"))
+        .assert_valid();
 }
 
 /// Assert `capabilities --json` emits exactly the document `--describe` emits.

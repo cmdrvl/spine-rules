@@ -20,7 +20,7 @@ const CONTRACT: &str = r#"{
   "schema_version": "operator.v1", "name": "demo", "tool_version": "0.3.0",
   "contract_version": "1.0.0", "description": "d",
   "commands": [{"name":"capabilities"},{"name":"robot-docs"},{"name":"doctor"}],
-  "exit_codes": {"0":{"meaning":"OK","domain":"positive"},"2":{"meaning":"R","domain":"error"}},
+  "exit_codes": {"0":{"meaning":"OK","domain":"positive"},"1":{"meaning":"N","domain":"negative"},"2":{"meaning":"R","domain":"error"}},
   "refusals": [], "env_vars": [], "formats": ["csv"],
   "side_effects": {"reads_files":true,"writes_files":false,"network":false,"writes_witness":false},
   "pipeline": {"upstream":[],"downstream":[]}

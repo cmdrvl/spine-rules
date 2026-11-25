@@ -100,6 +100,11 @@ macro_rules! golden_rules_suite {
 
         // ── Family contract: version + subcommand parity ────────────────
         #[test]
+        fn r006_operator_json_is_valid_operator_v1() {
+            $crate::contract::assert_operator_valid($operator_json);
+        }
+
+        #[test]
         fn r006_operator_version_matches_cargo_toml() {
             $crate::contract::assert_version_parity(
                 $operator_json,

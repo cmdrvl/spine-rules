@@ -44,7 +44,8 @@ pub fn assert_exit_codes_trinity(operator_json: &str, require_1: bool) {
         .iter()
         .filter_map(|o| o.get("flag").and_then(|f| f.as_str()).map(str::to_owned))
         .collect();
-    let violations = crate::exit_codes::check_exit_codes(&pairs, &flags);
+    let has_doctor = manifest.subcommands.iter().any(|c| c.name == "doctor");
+    let violations = crate::exit_codes::check_exit_codes(&pairs, &flags, has_doctor);
     assert!(
         violations.is_empty(),
         "R-002 VIOLATION: operator.json exit codes break the family dictionary:\n  - {}",

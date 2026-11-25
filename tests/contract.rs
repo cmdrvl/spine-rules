@@ -17,6 +17,7 @@ const GOOD: &str = r#"{
   ],
   "exit_codes": {
     "0": {"meaning": "OK", "domain": "positive"},
+    "1": {"meaning": "N", "domain": "negative"},
     "2": {"meaning": "REFUSAL", "domain": "error"}
   },
   "refusals": [{"code": "E_BAD_INPUT", "message": "bad"}],
@@ -231,5 +232,167 @@ fn subcommand_parity_catches_omission() {
     assert_required_subcommands(
         r#"{"subcommands":[{"name":"scan"},{"name":"doctor"}]}"#,
         &["capabilities", "robot-docs", "doctor"],
+    );
+}
+
+// ── generated-suite entry point: full validate() ────────────────────────
+
+use spine_rules::contract::{assert_capabilities_match_describe, assert_operator_valid};
+use std::os::unix::fs::PermissionsExt;
+
+#[test]
+fn assert_operator_valid_accepts_good_manifest() {
+    assert_operator_valid(GOOD);
+}
+
+fn mutate(f: impl Fn(&mut serde_json::Value)) -> String {
+    let mut doc: serde_json::Value = serde_json::from_str(GOOD).unwrap();
+    f(&mut doc);
+    doc.to_string()
+}
+
+/// `r006_operator_json_is_valid_operator_v1` calls exactly this function.
+#[test]
+fn bad_manifests_fail_the_generated_suite_check() {
+    let bad: Vec<(&str, String)> = vec![
+        (
+            "schema_version",
+            mutate(|d| d["schema_version"] = "operator.v0".into()),
+        ),
+        (
+            "does not start with E_",
+            mutate(|d| d["refusals"][0]["code"] = "BAD".into()),
+        ),
+        (
+            "UPPER_SNAKE_CASE",
+            mutate(|d| d["env_vars"][0]["name"] = "lower".into()),
+        ),
+        (
+            "formats is empty",
+            mutate(|d| d["formats"] = serde_json::json!([])),
+        ),
+        (
+            "does not parse",
+            mutate(|d| {
+                d.as_object_mut().unwrap().remove("side_effects");
+            }),
+        ),
+        (
+            "does not parse",
+            mutate(|d| {
+                d.as_object_mut().unwrap().remove("pipeline");
+            }),
+        ),
+        (
+            "does not parse",
+            mutate(|d| {
+                d.as_object_mut().unwrap().remove("env_vars");
+            }),
+        ),
+    ];
+    for (needle, doc) in bad {
+        let err = std::panic::catch_unwind(|| assert_operator_valid(&doc))
+            .expect_err("bad manifest must fail");
+        let msg = err
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_default();
+        assert!(msg.contains(needle), "expected {needle:?} in panic: {msg}");
+    }
+}
+
+// ── capabilities --json vs --describe ───────────────────────────────────
+
+fn script(dir: &tempfile::TempDir, body: &str) -> String {
+    let path = dir.path().join("tool");
+    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path.to_str().unwrap().to_owned()
+}
+
+#[test]
+fn capabilities_matching_describe_passes() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = script(&dir, &format!("cat <<'E'\n{}\nE", GOOD.replace('\n', " ")));
+    assert_capabilities_match_describe(&bin);
+}
+
+#[test]
+#[should_panic(expected = "differs from")]
+fn capabilities_disagreeing_with_describe_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let describe = GOOD.replace('\n', " ");
+    let caps = describe.replace("\"0.3.0\"", "\"0.4.0\"");
+    let body = format!(
+        "if [ \"$1\" = \"--describe\" ]; then cat <<'E'\n{describe}\nE\nelse cat <<'E'\n{caps}\nE\nfi"
+    );
+    let bin = script(&dir, &body);
+    assert_capabilities_match_describe(&bin);
+}
+
+// ── schema is never looser than validate() on what it can express ───────
+
+fn schema_accepts(doc: &str) -> bool {
+    let schema: serde_json::Value = serde_json::from_str(OPERATOR_V1_SCHEMA).unwrap();
+    let validator = jsonschema::validator_for(&schema).expect("schema compiles");
+    validator.is_valid(&serde_json::from_str::<serde_json::Value>(doc).unwrap())
+}
+
+#[test]
+fn schema_and_validate_agree_on_good_manifest() {
+    assert!(schema_accepts(GOOD));
+    assert!(contract().validate().is_empty());
+}
+
+#[test]
+fn schema_and_validate_both_reject_planted_documents() {
+    let planted: Vec<(&str, String)> = vec![
+        (
+            "commands without capabilities",
+            mutate(|d| {
+                d["commands"]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|c| c["name"] != "capabilities")
+            }),
+        ),
+        (
+            "exit 3 with domain negative",
+            mutate(|d| {
+                d["exit_codes"]["3"] = serde_json::json!({"meaning": "BLOCK", "domain": "negative"})
+            }),
+        ),
+        (
+            "expected_change without --exit-zero-on-change",
+            mutate(|d| {
+                d["exit_codes"]["1"] =
+                    serde_json::json!({"meaning": "CHANGE", "domain": "expected_change"})
+            }),
+        ),
+        (
+            "doctor without exit 1",
+            mutate(|d| {
+                d["exit_codes"].as_object_mut().unwrap().remove("1");
+            }),
+        ),
+    ];
+    for (label, doc) in &planted {
+        assert!(!schema_accepts(doc), "schema accepted: {label}");
+        let c = OperatorContract::parse(doc).unwrap_or_else(|e| panic!("{label}: {e}"));
+        assert!(!c.validate().is_empty(), "validate() accepted: {label}");
+    }
+    // ...and the same expected_change document becomes valid in both once the flag is declared.
+    let fixed = mutate(|d| {
+        d["exit_codes"]["1"] =
+            serde_json::json!({"meaning": "CHANGE", "domain": "expected_change"});
+        d["options"] = serde_json::json!([{"flag": "--exit-zero-on-change"}]);
+    });
+    assert!(schema_accepts(&fixed));
+    assert!(
+        OperatorContract::parse(&fixed)
+            .unwrap()
+            .validate()
+            .is_empty()
     );
 }

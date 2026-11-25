@@ -2,8 +2,23 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/cmdrvl/spine-rules/schemas/operator.v1.schema.json",
   "title": "operator.v1",
-  "description": "Canonical contract for a spine tool. Backs both `<tool> --describe` (operator.json) and `<tool> capabilities --json`; the two must be byte-for-byte the same document.",
+  "description": "Canonical contract for a spine tool. Backs both `<tool> --describe` (operator.json) and `<tool> capabilities --json`; the two must be byte-for-byte the same document. NOTE: validate() in spine-rules (OperatorContract::validate) is authoritative. JSON Schema cannot express: tool_version == Cargo.toml version, unique command/refusal/env_var/format names, or `doctor` implying exit 1 beyond the fixed `required` list. This schema must never be looser than validate() on what it can express; tests/contract.rs runs planted documents through both.",
   "type": "object",
+  "allOf": [
+    {
+      "description": "expected_change on exit 1 requires the --exit-zero-on-change option.",
+      "if": {
+        "required": ["exit_codes"],
+        "properties": { "exit_codes": { "required": ["1"], "properties": { "1": { "required": ["domain"], "properties": { "domain": { "const": "expected_change" } } } } } }
+      },
+      "then": {
+        "required": ["options"],
+        "properties": {
+          "options": { "contains": { "type": "object", "required": ["flag"], "properties": { "flag": { "const": "--exit-zero-on-change" } } } }
+        }
+      }
+    }
+  ],
   "required": [
     "schema_version",
     "name",
@@ -42,8 +57,12 @@
     "options": { "type": "array" },
     "commands": {
       "type": "array",
-      "description": "Must include capabilities, robot-docs and doctor.",
-      "contains": { "type": "object", "properties": { "name": { "const": "doctor" } }, "required": ["name"] },
+      "description": "Must include capabilities, robot-docs and doctor. Names must be unique (not expressible here).",
+      "allOf": [
+        { "contains": { "type": "object", "properties": { "name": { "const": "capabilities" } }, "required": ["name"] } },
+        { "contains": { "type": "object", "properties": { "name": { "const": "robot-docs" } }, "required": ["name"] } },
+        { "contains": { "type": "object", "properties": { "name": { "const": "doctor" } }, "required": ["name"] } }
+      ],
       "items": {
         "type": "object",
         "required": ["name"],
@@ -56,17 +75,16 @@
     },
     "exit_codes": {
       "type": "object",
-      "required": ["0", "2"],
-      "description": "0 positive; 1 negative or expected_change; 2 error; 3 policy (valid verdict distinct from refusal). See docs/exit-codes.md.",
+      "required": ["0", "1", "2"],
+      "description": "0 positive; 1 negative | expected_change | unhealthy; 2 error; 3 policy. `1` is required because every tool declares `doctor`. See docs/exit-codes.md.",
       "propertyNames": { "enum": ["0", "1", "2", "3"] },
-      "additionalProperties": {
-        "type": "object",
-        "required": ["meaning", "domain"],
-        "properties": {
-          "meaning": { "type": "string" },
-          "domain": { "enum": ["positive", "negative", "expected_change", "policy", "error"] }
-        }
-      }
+      "properties": {
+        "0": { "$ref": "#/$defs/exit_code_positive" },
+        "1": { "$ref": "#/$defs/exit_code_one" },
+        "2": { "$ref": "#/$defs/exit_code_error" },
+        "3": { "$ref": "#/$defs/exit_code_policy" }
+      },
+      "additionalProperties": false
     },
     "refusals": { "type": "array", "items": { "$ref": "#/$defs/refusal" } },
     "env_vars": {
@@ -103,6 +121,10 @@
     }
   },
   "$defs": {
+    "exit_code_positive": { "type": "object", "required": ["meaning", "domain"], "properties": { "meaning": { "type": "string" }, "domain": { "const": "positive" } } },
+    "exit_code_one": { "type": "object", "required": ["meaning", "domain"], "properties": { "meaning": { "type": "string" }, "domain": { "enum": ["negative", "expected_change", "unhealthy"] } } },
+    "exit_code_error": { "type": "object", "required": ["meaning", "domain"], "properties": { "meaning": { "type": "string" }, "domain": { "const": "error" } } },
+    "exit_code_policy": { "type": "object", "required": ["meaning", "domain"], "properties": { "meaning": { "type": "string" }, "domain": { "const": "policy" } } },
     "refusal": {
       "type": "object",
       "required": ["code"],

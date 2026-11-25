@@ -5,28 +5,52 @@
 //! | 0    | `positive`        | success / clean verdict                                    |
 //! | 1    | `negative`        | domain verdict that should halt a pipeline                 |
 //! | 1    | `expected_change` | normal, expected outcome (e.g. `rvl` `REAL_CHANGE`); the tool must offer `--exit-zero-on-change` |
-//! | 2    | `error`           | refusal, CLI/usage error, unhealthy-tool failure to run    |
+//! | 1    | `unhealthy`       | the tool has no verdict `1`; `1` exists only for `doctor` unhealthy |
+//! | 2    | `error`           | refusal or CLI/usage error; never a verdict, never doctor-unhealthy |
 //! | 3    | `policy`          | valid policy verdict (e.g. `assess` `BLOCK`) distinct from refusal |
 //!
+//! Every tool with a `doctor` command declares `1`: doctor-unhealthy shares the
+//! code with the verdict `1` (exempt from the verdict domain) or, when the tool
+//! has no verdict `1`, declares it with domain `unhealthy`.
+//! `--exit-zero-on-change` affects the verdict only, never `doctor`.
 //! Read/query subcommands never exit `1` for an empty result set.
 
 use std::collections::BTreeSet;
 use std::process::Command;
 
-pub const DOMAINS: &[&str] = &["positive", "negative", "expected_change", "policy", "error"];
+pub const DOMAINS: &[&str] = &[
+    "positive",
+    "negative",
+    "expected_change",
+    "unhealthy",
+    "policy",
+    "error",
+];
 
 /// Opt-in flag that maps an `expected_change` outcome to exit 0.
 pub const EXIT_ZERO_ON_CHANGE_FLAG: &str = "--exit-zero-on-change";
 
 /// Violations of the exit-code dictionary. `codes` are `(code, domain)` pairs
-/// from `exit_codes`; `option_flags` are the tool's declared `options[].flag`.
-pub fn check_exit_codes(codes: &[(&str, &str)], option_flags: &BTreeSet<String>) -> Vec<String> {
+/// from `exit_codes`; `option_flags` are the tool's declared `options[].flag`;
+/// `has_doctor` is whether the tool declares a `doctor` command.
+pub fn check_exit_codes(
+    codes: &[(&str, &str)],
+    option_flags: &BTreeSet<String>,
+    has_doctor: bool,
+) -> Vec<String> {
     let mut v = Vec::new();
     let has = |c: &str| codes.iter().any(|(k, _)| *k == c);
     for required in ["0", "2"] {
         if !has(required) {
             v.push(format!("exit_codes is missing {required:?}"));
         }
+    }
+    if has_doctor && !has("1") {
+        v.push(
+            "tool declares `doctor`, so exit_codes must declare \"1\" (doctor unhealthy); \
+             use domain negative/expected_change for a verdict 1, or `unhealthy` when there is none"
+                .into(),
+        );
     }
     for (code, domain) in codes {
         if !DOMAINS.contains(domain) {
@@ -37,7 +61,7 @@ pub fn check_exit_codes(codes: &[(&str, &str)], option_flags: &BTreeSet<String>)
         }
         let allowed: &[&str] = match *code {
             "0" => &["positive"],
-            "1" => &["negative", "expected_change"],
+            "1" => &["negative", "expected_change", "unhealthy"],
             "2" => &["error"],
             "3" => &["policy"],
             other => {
@@ -63,7 +87,8 @@ pub fn check_exit_codes(codes: &[(&str, &str)], option_flags: &BTreeSet<String>)
 }
 
 /// Run a read/query invocation whose fixture yields no rows and assert it
-/// exits 0 with valid JSON on stdout (an empty result is not a failure).
+/// exits 0 and prints exactly the empty JSON array `[]` (an empty result is
+/// not a failure).
 pub fn assert_empty_query_exits_zero(binary: &str, args: &[&str]) {
     let out = Command::new(binary)
         .args(args)
@@ -77,10 +102,16 @@ pub fn assert_empty_query_exits_zero(binary: &str, args: &[&str]) {
         out.status.code(),
         String::from_utf8_lossy(&out.stderr)
     );
-    serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap_or_else(|e| {
+    let value = serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap_or_else(|e| {
         panic!(
             "`{binary} {}` exit 0 but stdout is not JSON: {e}",
             args.join(" ")
         )
     });
+    assert_eq!(
+        value,
+        serde_json::json!([]),
+        "`{binary} {}` must print an empty JSON array `[]` for an empty result set",
+        args.join(" ")
+    );
 }
