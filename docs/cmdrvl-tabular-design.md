@@ -1,7 +1,9 @@
 # cmdrvl-tabular — design (bd-e0g)
 
-Status: design + spike. Spike: `spikes/tabular-spike/` (6 passing tests, real files
-in all five formats). Everything not covered by the spike is marked **unproven**.
+Status: design + local skeleton. Skeleton: `/Users/zac/Source/cmdrvl/tabular` (crate `cmdrvl-tabular`,
+local git repo, no remote, repo decision pending with the operator; 44 passing tests over real files in
+all five formats). Throwaway spike: `spikes/tabular-spike/` (superseded by the skeleton, see Conformance).
+Things the skeleton does not cover are marked **unproven**; the skeleton README lists them.
 Crate versions were checked on crates.io on 2026-11-24.
 
 ## Problem
@@ -32,9 +34,9 @@ No `evidence-machine` dependency (boundary ban in bd-2tw).
 Rejected: DuckDB (bundled C++ build in every binary; stays inside verify/benchmark as their SQL engine),
 `polars`, `arrow-csv`, parquet's `arrow` feature (pulls six arrow crates for nothing we need).
 
-Parquet codecs: spike compiled and read a Snappy file only. gzip and lz4 are compiled in but
-**untested**. `zstd` (C dependency, needed for DuckDB-written files) is a crate feature `zstd`,
-default on in the real crate, **not built or tested in the spike**.
+Parquet codecs: snappy, gzip (`flate2-zlib-rs`), lz4 and `zstd` are tested in the skeleton (pyarrow-written
+files, multiple row groups). `zstd` (C dependency) is crate feature `zstd`, default on; the crate also builds
+and tests with `--no-default-features`. Brotli is not compiled in.
 
 ## Cell model
 
@@ -42,7 +44,7 @@ default on in the real crate, **not built or tested in the spike**.
 pub enum Cell { Null, Text(Vec<u8>) }   // Text is never empty
 ```
 
-Invariants, all enforced by the spike's cross-format test:
+Invariants, all enforced by the skeleton's cross-format tests:
 1. Zero-length input is `Null` in every format (CSV `,,`, JSON `null`, Parquet null, XLSX empty cell,
    empty string anywhere). The null/empty-string distinction is intentionally not preserved:
    spine-rules treats both as an incomplete key component.
@@ -64,7 +66,7 @@ Parity means: the *typed* source value renders to the same text a CSV writer wou
 | bool | `true` / `false` |
 | JSON nested object/array, Parquet struct/list/map | refuse `E_UNSUPPORTED_VALUE` |
 
-Refused in v0 (spike refuses them, with type name and coordinates only): Parquet decimal, date,
+Refused in v0 (the skeleton refuses them, with type name and coordinates only): Parquet decimal, date,
 timestamp, binary, float16; XLSX datetime/duration/error cells. Planned v1 renderings, **not
 implemented**: dates as `YYYY-MM-DD`, timestamps as RFC 3339 UTC with fixed 3/6-digit fraction,
 decimals as exact scale-preserving text, XLSX datetimes via calamine's `dates` feature only when
@@ -76,7 +78,7 @@ Known limit: JSON numbers beyond f64/i64 precision lose digits (`serde_json` wit
 `arbitrary_precision`). Spine tools that need exact decimals from JSONL must carry them as strings.
 
 `classify(&Cell) -> CellClass { Null, Integer, Decimal, Bool, Text }` is a pure function of the
-canonical bytes, so type classification is identical across formats by construction. (Not in spike.)
+canonical bytes, so type classification is identical across formats by construction. (Implemented and tested.)
 
 ## API surface
 
@@ -86,7 +88,7 @@ pub struct OpenOptions {
     pub sheet: Option<SheetSel>,       // Name(String) | Index(usize); xlsx/xls only
     pub max_rows: Option<u64>,         // data rows, excluding header
     pub max_bytes: Option<u64>,        // input file size on disk
-    pub csv: CsvOptions,               // delimiter: Option<u8> (None = auto-detect), skip_rows, header_row
+    pub csv: CsvOptions,               // delimiter: Option<u8> (None = auto-detect), skip_rows (physical lines before the header)
 }
 pub enum Format { Csv, Tsv, Jsonl, Parquet, Xlsx }   // .ndjson => Jsonl, .xls => Xlsx
 
@@ -104,13 +106,17 @@ pub struct Row { pub index: u64, pub cells: Vec<Cell> }   // index is 1-based da
 pub struct Refusal { pub code: RefusalCode, pub detail: String, pub context: BTreeMap<String, Value> }
 ```
 
-Spike shape differs deliberately: it materializes `Table { headers, rows }` to keep the proof small.
-The streaming iterator is the contract; the spike does not prove it.
+Skeleton v0 differences, stated plainly: `open` materializes the table, so `rows()` is a single-pass
+iterator over already-read rows and never yields `Err`; all refusals surface from `open`. The signatures
+are the streaming-shaped contract; real streaming is not implemented. `header_row` was dropped as redundant
+with `skip_rows`. `SourceInfo { delimiter, sheet, bytes_read }` where `bytes_read` is the file size
+(v0 readers consume the whole file). `Row::key_components(&[usize]) -> Option<Vec<Vec<u8>>>` is the
+composite-key hand-off (`Null` becomes an empty component). `Cell::classify` is implemented.
 
 Rules:
 - `rows()` yields exactly `headers().len()` cells per row. Short JSONL rows are `Null`-padded,
   and headers are the union of keys in first-seen order (JSONL needs a first pass, or a documented
-  first-record-wins mode: **decision for Wave 3 owners, default union**).
+  first-record-wins mode). Decided in the skeleton: union only, first-seen key order; no first-record-wins mode.
 - All maps in `context` are `BTreeMap` (R-005).
 - Header handling (`__shape_col_N` for empty, duplicate refusal) stays in the tools. Moving it here
   would silently change shape output; revisit once all tools consume the crate.
@@ -119,15 +125,19 @@ Rules:
 
 Extension first (`csv tsv jsonl ndjson parquet xlsx xls`), then confirm with magic bytes:
 `PAR1` head and tail (Parquet), `PK\x03\x04` (xlsx), `D0 CF 11 E0` (xls). Mismatch or unknown →
-`E_FORMAT`. **Unproven**: magic-byte check is not in the spike (extension only).
+`E_FORMAT`. Implemented and tested (unknown extension, content/extension mismatch, override still checks
+magic); `.xls` and `.xlsm` have no fixture, so those paths are untested.
 
 ## CSV dialect
 
-Port `shape/src/csv/dialect.rs` as the single implementation (candidates `, \t ; | ^`, 64 KiB
+Re-implemented from `shape/src/csv/dialect.rs` as the single implementation (candidates `, \t ; | ^`, 64 KiB
 sample, record-count/mode scoring, `E_DIALECT` when ambiguous). `.tsv` pins `\t`. BOM stripped;
 UTF-16/32 BOM or NUL bytes → `E_ENCODING` (same as shape today). `profile slice` preamble handling
-is passed in as `skip_rows` / `header_row`; slice's own encoding directives stay in profile.
-**Unproven**: spike uses a fixed delimiter by extension; dialect port is untested here.
+is passed in as `skip_rows` (physical lines); slice's own encoding directives stay in profile.
+The skeleton implements this and tests every candidate delimiter, pinning, BOM, CRLF, quoted newlines and
+non-UTF-8 bytes. It was written from shape's source and **not run against shape**; two scoring quirks it
+inherits are documented in the crate README (ragged record in the sample refuses `E_DIALECT`; tiny files with
+quoted newlines can pick the wrong delimiter). Shape's owner should confirm both.
 
 ## Excel sheet selection
 
@@ -146,6 +156,8 @@ is passed in as `skip_rows` / `header_row`; slice's own encoding directives stay
 
 Reuse shape's existing codes unchanged so shape's refusal schema does not move:
 `E_IO`, `E_ENCODING`, `E_CSV_PARSE`, `E_EMPTY`, `E_HEADERS`, `E_DIALECT`, `E_TOO_LARGE`.
+Semantics (as in shape): `E_HEADERS` = no header row at all (`context.issue = "missing"`); `E_EMPTY` =
+header present, zero data rows, in every format.
 (`E_INPUT_NOT_LOCKED`, `E_INPUT_DRIFT`, `E_AMBIGUOUS_PROFILE` are tool-level, not reader-level.)
 
 New:
@@ -158,21 +170,20 @@ New:
 | `E_XLSX_PARSE` | not a workbook / corrupt zip | none |
 | `E_AMBIGUOUS_SHEET` | multi-sheet workbook, no `--sheet` | `sheets` |
 | `E_SHEET_NOT_FOUND` | `--sheet` matches nothing | `requested`, `sheets` |
-| `E_UNSUPPORTED_VALUE` | nested, or a type v0 refuses | `kind`, `column` or `row`+`col` |
+| `E_UNSUPPORTED_VALUE` | nested, or a type v0 refuses | `kind`, plus `column`+`row` (JSONL, Parquet) or absolute 1-based `row`+`col` (XLSX) |
 | `E_ENCRYPTED` | password-protected workbook | none |
 
 Refusal `detail` and `context` never contain cell values (see below). Exit code mapping is the
-tool's business and follows bd-6g4; the spike prints `{"outcome":"REFUSAL",...}` and exits 2 only
-because that is today's convention.
+tool's business and follows bd-6g4; the crate returns the typed `Refusal` and prints nothing.
 
 ## Zero retention
 
 The reader is a pure function from file bytes to cells:
 - no files written, no temp files, no cache, no network, no env reads;
 - no logging of cell content; `Refusal.detail`/`context` carry codes, type names, row/col
-  coordinates, sheet names and header names only. Spike test
-  `unsupported_value_refusal_carries_no_cell_content` pins this (the first spike draft printed `{:?}`
-  of the value, which leaked; fixed). Header/sheet names are metadata, not cell values;
+  coordinates, sheet names and header names only. Skeleton tests
+  (`assert_no_leak` over parquet, xlsx, JSONL value and parse refusals, and `E_IO`) pin this; the first spike
+  draft printed `{:?}` of the value, which leaked. Library error text is never forwarded. Header/sheet names are metadata, not cell values;
   a tool with a stricter policy can redact `context.column`.
 - tools that need SQL (verify, benchmark) feed rows into DuckDB through an in-memory appender,
   never a temp CSV. **Unproven**; if the DuckDB appender path is not workable, XLSX in
@@ -185,11 +196,11 @@ The reader is a pure function from file bytes to cells:
 - `max_bytes`: compared with file size from `metadata()` before opening → `E_TOO_LARGE`. For xlsx the
   uncompressed zip size is the real cost; checking central-directory sizes is planned and **unproven**
   (zip-bomb exposure until done).
-- `max_rows`: counted while streaming; the first row past the limit → `E_TOO_LARGE`. (Spike checks
-  after full read; real impl must stop early.)
-- Streaming: CSV, JSONL and Parquet (per row group) stream. The spike's XLSX path uses
-  `worksheet_range`, which materializes the whole sheet; whether calamine's cell reader can stream
-  xlsx at 0.38 is **unproven**. Document XLSX as O(sheet) memory until shown otherwise.
+- `max_rows`: the first row past the limit → `E_TOO_LARGE`; readers stop at that row, and Parquet refuses on
+  the footer row count before decoding. Tested in every format at the boundary.
+- Streaming: **not implemented in v0** (see API). The format readers could stream (csv records, JSONL lines,
+  Parquet row groups); XLSX uses `worksheet_range`, which materializes the sheet, and whether calamine's cell
+  reader can stream xlsx at 0.38 is **unproven**. XLSX is O(sheet) memory until shown otherwise.
 
 ## Composite-key parity
 
@@ -197,25 +208,35 @@ The reader is a pure function from file bytes to cells:
 treats `Null` as an empty component, and applies the shared rules (ASCII-trim each, any empty →
 incomplete tuple, tuples ordered lexicographically by component bytes, never flattened with a
 sentinel). That is exactly what `spine_rules::composite_key::assert_ordered_tuple_semantics`
-checks; the spike runs it over an adapter that consumes `Cell`s. The spike adapter is thin; the
-claim proven is "Cell bytes survive the shared contract", not "every tool's key builder passes".
+checks; the skeleton runs it over an adapter that consumes `Cell`s, and also compares `Row::key_components`
+tuples across all five formats. The claim proven is "Cell bytes survive the shared contract", not "every
+tool's key builder passes".
 
 ## Conformance plan
 
-1. Fixture dataset (spike): 3 rows × `id,region,amount,active,note` covering padded text, `NA`/`NULL`
-   literals, a null, integral float, fractional float, bool. Provided as csv, tsv, jsonl, parquet
-   (Snappy), xlsx (two sheets: `loans`, `notes`), all produced by independent writers via
-   `fixtures/make_fixtures.py` (csv, json, pyarrow, openpyxl).
-2. Test: every format yields identical headers and identical `Vec<Vec<Cell>>`. (Spike: passing.)
-3. Refusals: `E_AMBIGUOUS_SHEET`, `E_SHEET_NOT_FOUND`, `E_TOO_LARGE`, `E_UNSUPPORTED_VALUE` (spike:
-   passing). To add in the real crate: `E_FORMAT` (extension/magic mismatch), `E_EMPTY`, `E_ENCODING`,
-   `E_DIALECT`, `E_CSV_PARSE` ragged row, `E_JSONL_PARSE`, corrupt Parquet footer, truncated xlsx.
-4. Extend fixtures before Wave 3 signs off: non-UTF-8 CSV bytes, a ≥1 row-group-boundary Parquet file,
-   zstd Parquet from DuckDB, xlsx with sheet data starting off A1, xlsx with formula and date cells,
-   CRLF and quoted-newline CSV, JSONL with ragged keys.
-5. Each Wave 3 pane adds one test in its repo: open all five fixtures through its own adapter and
-   assert grid equality plus `assert_ordered_tuple_semantics`. Fixtures are published by
-   `cmdrvl-tabular` (a `fixtures` dir versioned with the crate); tools do not copy them.
+Implemented in the skeleton (`tests/conformance.rs`, `tests/refusals.rs`, fixtures from independent writers via
+`tests/fixtures/make_fixtures.py`):
+
+1. Dataset: 3 rows x `id,region,amount,active,note` (padded text, `NA`/`NULL` literals, a null, integral and
+   fractional float, bool) as csv, tsv, jsonl, parquet, xlsx (sheets `loans`, `notes`). Every format is compared
+   to a hard-coded golden grid, with classification and composite-key tuples identical across formats and the
+   shared `assert_ordered_tuple_semantics` run over cells.
+2. Parquet: zstd, gzip, lz4 codecs across row groups of 2; float32 renders in f32 shortest form.
+3. Refusals with planted inputs: `E_AMBIGUOUS_SHEET` (incl. hidden sheet), `E_SHEET_NOT_FOUND`, name-beats-index,
+   off-A1 used range, `E_ENCRYPTED` (real msoffcrypto file), truncated xlsx, `E_UNSUPPORTED_VALUE` (parquet date and
+   list, xlsx datetime, JSONL nested) each asserted to carry no cell value, `E_TOO_LARGE` for `max_rows` (every
+   format, boundary) and `max_bytes`, `E_FORMAT` (unknown extension, content mismatch, override still checks magic),
+   corrupt Parquet footer, `E_ENCODING`, `E_HEADERS`, `E_EMPTY`, `E_CSV_PARSE` with counts, `E_DIALECT`,
+   `E_JSONL_PARSE` (no content), `E_IO` (kind only), every candidate delimiter, skip_rows, BOM, CRLF, quoted
+   newline, non-UTF-8 bytes, JSONL ragged keys.
+4. Spike supersession: the spike's six tests (identical grids, literal tokens/null, ambiguous sheet + index
+   select, max_rows, no-leak refusal, composite-key contract) all have equivalents in the skeleton. The spike
+   directory is left in place; deleting it needs the operator's say-so.
+
+Still to do before Wave 3 signs off: publish fixtures with the crate (tools must not copy them); run the
+detector against `shape`'s own dialect fixtures; `.xls`/`.xlsm` fixtures; XLSX formula and date-cell fixtures.
+Each Wave 3 pane adds one test in its repo: open all five fixtures through its adapter, assert grid equality plus
+`assert_ordered_tuple_semantics`.
 
 ## Wave 3 adoption
 
@@ -231,11 +252,10 @@ Order: tabular v0.1 (CSV, TSV, JSONL, Parquet, XLSX with the v0 type set) → sh
 pair) → the rest. Date/timestamp/decimal rendering (v1) should land before verify/benchmark/canon,
 whose real inputs are typed.
 
-## Not proven by the spike
+## Not proven (after the skeleton)
 
-Streaming iterator API; CSV dialect auto-detection and BOM/encoding refusals; magic-byte format
-detection; `.xls` (BIFF) and `.ndjson`; Parquet gzip/lz4/zstd and multi-row-group files; Parquet
-decimal/date/timestamp/nested; XLSX dates, formulas, hidden sheets, encrypted files, off-A1 used
-ranges, streaming; zip-bomb guard; the DuckDB in-memory path; calamine 0.38 compatibility with
-fingerprint's existing code; release-binary size and build-time cost of adding parquet (the spike
-cold build took ~4 minutes, `cargo check` ~7s warm; binary size not measured).
+Real streaming (v0 materializes); `.xls` (BIFF) and `.xlsm`; Parquet decimal/date/timestamp rendering
+(refused in v0, v1); XLSX dates, formulas, merged cells and streaming; zip-bomb guard; backslash-escaped CSV;
+detector parity against `shape` (re-implemented from its source, two scoring quirks documented in the crate
+README); the DuckDB in-memory path for verify/benchmark; calamine 0.38 against fingerprint's existing code;
+release-binary size and build time of adding parquet (cold build of the spike was about 4 minutes).
