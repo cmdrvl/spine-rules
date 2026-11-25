@@ -1,0 +1,18 @@
+# Throwaway proof for docs/cmdrvl-tabular-design.md (bd-e0g). Not part of the
+# spine-rules crate: spine-rules stays serde + serde_json only (AGENTS.md rule 4).
+[package]
+name = "tabular-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+csv = "1.4"
+serde_json = { version = "1", features = ["preserve_order"] }
+calamine = "0.38"
+parquet = { version = "60.2", default-features = false, features = ["snap", "flate2-zlib-rs", "lz4"] }
+
+[dev-dependencies]
+spine-rules = { path = "../.." }
+
+[workspace]

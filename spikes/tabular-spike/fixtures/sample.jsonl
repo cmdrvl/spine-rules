@@ -1,0 +1,3 @@
+{"id": 1, "region": "East", "amount": 100.5, "active": true, "note": "NA"}
+{"id": 2, "region": "West", "amount": 2000.0, "active": false, "note": "NULL"}
+{"id": 3, "region": " North ", "amount": 0.1, "active": true, "note": null}
