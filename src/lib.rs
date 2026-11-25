@@ -21,6 +21,8 @@
 
 pub mod composite_key;
 pub mod contract;
+pub mod conventions;
+pub mod doctor;
 pub mod helpers;
 #[doc(hidden)]
 pub mod macros;

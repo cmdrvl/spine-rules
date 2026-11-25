@@ -80,6 +80,27 @@ Required: `schema_version` (`operator.v1`), `name`, `tool_version`, `contract_ve
 
 New generated tests: `r006_operator_version_matches_cargo_toml` (operator version == `Cargo.toml` package version; workspace-inherited versions are rejected), `r006_operator_declares_required_subcommands` (`capabilities`, `robot-docs`, `doctor`; override with `required_subcommands: &[...]`), `r006_capabilities_json_matches_describe`.
 
+## Doctor contract (`cmdrvl.doctor.v1`)
+
+One schema for all three doctor reports (`spine_rules::doctor::DoctorReport`):
+
+| Command | `mode` | Extra required field |
+|---|---|---|
+| `<tool> doctor --json` | `health` | none |
+| `<tool> doctor capabilities --json` | `capabilities` | `contract`: the `operator.v1` document, identical to `capabilities --json` |
+| `<tool> doctor triage --json` | `triage` | `next_actions` (non-empty when unhealthy) |
+
+Fields: `schema_version` (`cmdrvl.doctor.v1`), `mode`, `tool`, `tool_version`, `healthy`, `findings[] {id, severity: info|warning|error, message, fix?}`. `healthy` must equal "no `error` finding". Exit codes: `0` healthy, `1` unhealthy, `2` CLI/usage error only; a parsed unhealthy report is never exit `2`.
+
+## Family conventions
+
+- **Flag dictionary** (`conventions::lint_flags`): canonical `--out`, `--capsule-dir`, `--json`, `--explicit`, `--no-witness`. Legacy `--output` and `--capsule-out` may appear only as entries in an option's `aliases`, never as its primary `flag`.
+- **ANSI-free output**: stdout and stderr contain no `ESC [` when piped, with `NO_COLOR=1 TERM=dumb` and with neither variable set.
+- **`SOURCE_DATE_EPOCH`**: opt in with `fixture_timestamped_args`; two runs 1.1 s apart under the same value must produce identical stdout.
+- **Bare invocation**: no args, stdin `/dev/null`, output captured, must exit within 10 s.
+
+Generated tests: `family_doctor_{health,capabilities,triage}_conforms`, `family_flags_follow_dictionary`, `family_no_ansi_when_piped`, `family_bare_invocation_does_not_hang`, `family_source_date_epoch_deterministic` (opt-in).
+
 ## Generated tests
 
 | Test | Rule | When |

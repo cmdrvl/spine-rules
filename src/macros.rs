@@ -40,7 +40,55 @@ macro_rules! golden_rules_suite {
         $(fixture_csv: $csv_path:expr, fixture_csv_args: $csv_args:expr,)?
         $(exit_code_1_required: $require_1:expr,)?
         $(required_subcommands: $required_subs:expr,)?
+        $(fixture_timestamped_args: $timestamped_args:expr,)?
     ) => {
+        // ── Family doctor contract (cmdrvl.doctor.v1) ───────────────────
+        #[test]
+        fn family_doctor_health_conforms() {
+            $crate::doctor::assert_doctor_contract($binary, $crate::doctor::DoctorMode::Health);
+        }
+
+        #[test]
+        fn family_doctor_capabilities_conforms() {
+            $crate::doctor::assert_doctor_contract(
+                $binary,
+                $crate::doctor::DoctorMode::Capabilities,
+            );
+        }
+
+        #[test]
+        fn family_doctor_triage_conforms() {
+            $crate::doctor::assert_doctor_contract($binary, $crate::doctor::DoctorMode::Triage);
+        }
+
+        // ── Family conventions ──────────────────────────────────────────
+        #[test]
+        fn family_flags_follow_dictionary() {
+            $crate::conventions::assert_canonical_flags($operator_json);
+        }
+
+        #[test]
+        fn family_no_ansi_when_piped() {
+            $crate::conventions::assert_no_ansi_when_piped($binary, &["--describe"]);
+            $( $crate::conventions::assert_no_ansi_when_piped($binary, $success_args); )?
+            $( $crate::conventions::assert_no_ansi_when_piped($binary, $refusal_args); )?
+        }
+
+        #[test]
+        fn family_bare_invocation_does_not_hang() {
+            $crate::conventions::assert_bare_invocation_does_not_hang($binary);
+        }
+
+        $(
+            #[test]
+            fn family_source_date_epoch_deterministic() {
+                $crate::conventions::assert_source_date_epoch_deterministic(
+                    $binary,
+                    $timestamped_args,
+                );
+            }
+        )?
+
         // ── Family contract: version + subcommand parity ────────────────
         #[test]
         fn r006_operator_version_matches_cargo_toml() {
