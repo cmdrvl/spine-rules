@@ -101,6 +101,10 @@ Fields: `schema_version` (`cmdrvl.doctor.v1`), `mode`, `tool`, `tool_version`, `
 
 Generated tests: `family_doctor_{health,capabilities,triage}_conforms`, `family_flags_follow_dictionary`, `family_no_ansi_when_piped`, `family_bare_invocation_does_not_hang`, `family_source_date_epoch_deterministic` (opt-in).
 
+## Exit codes
+
+`0` positive, `1` negative or `expected_change`, `2` error (refusal / CLI error), `3` `policy` (valid verdict distinct from refusal, e.g. `assess` BLOCK). Diff-style tools whose `1` is expected must offer `--exit-zero-on-change`; read/query commands exit `0` on an empty result; `doctor` exits `1` when unhealthy. Full contract and migration notes: [`docs/exit-codes.md`](docs/exit-codes.md). Opt-in test: `fixture_empty_query_args` -> `family_empty_query_exits_zero`.
+
 ## Generated tests
 
 | Test | Rule | When |
@@ -127,7 +131,8 @@ ruleDirs:
 
 | Rule | Checks |
 |------|--------|
-| `exit-code-range.yml` | `process::exit()` outside 0/1/2 |
+| `exit-code-range.yml` | `process::exit()` outside 0/1/2/3 |
+| `exit-code-policy-band.yml` | `process::exit(3)` (warning: policy verdicts only) |
 | `no-hashmap-in-output.yml` | `HashMap::new()` in output code |
 | `witness-must-append.yml` | `File::create()` in witness code |
 

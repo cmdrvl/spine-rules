@@ -57,11 +57,15 @@
     "exit_codes": {
       "type": "object",
       "required": ["0", "2"],
-      "propertyNames": { "enum": ["0", "1", "2"] },
+      "description": "0 positive; 1 negative or expected_change; 2 error; 3 policy (valid verdict distinct from refusal). See docs/exit-codes.md.",
+      "propertyNames": { "enum": ["0", "1", "2", "3"] },
       "additionalProperties": {
         "type": "object",
         "required": ["meaning", "domain"],
-        "properties": { "meaning": { "type": "string" }, "domain": { "type": "string" } }
+        "properties": {
+          "meaning": { "type": "string" },
+          "domain": { "enum": ["positive", "negative", "expected_change", "policy", "error"] }
+        }
       }
     },
     "refusals": { "type": "array", "items": { "$ref": "#/$defs/refusal" } },

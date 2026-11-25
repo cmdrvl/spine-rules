@@ -32,13 +32,24 @@ pub fn assert_exit_codes_trinity(operator_json: &str, require_1: bool) {
         "R-002/R-007: operator.json must declare exit code 2"
     );
 
-    for key in manifest.exit_codes.keys() {
-        assert!(
-            ["0", "1", "2"].contains(&key.as_str()),
-            "R-002 VIOLATION: operator.json declares exit code {} — only 0, 1, 2 are permitted",
-            key
-        );
-    }
+    // 0/1/2 are the trinity; 3 is permitted only as a documented `policy`
+    // verdict (docs/exit-codes.md). Everything else is a violation.
+    let pairs: Vec<(&str, &str)> = manifest
+        .exit_codes
+        .iter()
+        .map(|(k, e)| (k.as_str(), e.domain.as_str()))
+        .collect();
+    let flags: BTreeSet<String> = manifest
+        .options
+        .iter()
+        .filter_map(|o| o.get("flag").and_then(|f| f.as_str()).map(str::to_owned))
+        .collect();
+    let violations = crate::exit_codes::check_exit_codes(&pairs, &flags);
+    assert!(
+        violations.is_empty(),
+        "R-002 VIOLATION: operator.json exit codes break the family dictionary:\n  - {}",
+        violations.join("\n  - ")
+    );
 }
 
 // ── R-007: Refusal codes match source ───────────────────────────────────────

@@ -185,16 +185,17 @@ impl OperatorContract {
             }
         }
 
-        for key in ["0", "2"] {
-            if !self.exit_codes.contains_key(key) {
-                v.push(format!("exit_codes is missing {key:?}"));
-            }
-        }
-        for key in self.exit_codes.keys() {
-            if !matches!(key.as_str(), "0" | "1" | "2") {
-                v.push(format!("exit_codes key {key:?} outside the 0/1/2 trinity"));
-            }
-        }
+        let pairs: Vec<(&str, &str)> = self
+            .exit_codes
+            .iter()
+            .map(|(k, e)| (k.as_str(), e.domain.as_str()))
+            .collect();
+        let flags: BTreeSet<String> = self
+            .options
+            .iter()
+            .filter_map(|o| o.get("flag").and_then(|f| f.as_str()).map(str::to_owned))
+            .collect();
+        v.extend(crate::exit_codes::check_exit_codes(&pairs, &flags));
 
         let mut codes = BTreeSet::new();
         for r in self

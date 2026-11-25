@@ -89,7 +89,14 @@ fn validation_catches_each_violation() {
             }),
         ),
         (
-            "outside the 0/1/2",
+            "outside the family dictionary",
+            Box::new(|c| {
+                let z = c.exit_codes["0"].clone();
+                c.exit_codes.insert("4".into(), z);
+            }),
+        ),
+        (
+            "exit code 3 must have domain",
             Box::new(|c| {
                 let z = c.exit_codes["0"].clone();
                 c.exit_codes.insert("3".into(), z);

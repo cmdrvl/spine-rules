@@ -41,7 +41,16 @@ macro_rules! golden_rules_suite {
         $(exit_code_1_required: $require_1:expr,)?
         $(required_subcommands: $required_subs:expr,)?
         $(fixture_timestamped_args: $timestamped_args:expr,)?
+        $(fixture_empty_query_args: $empty_query_args:expr,)?
     ) => {
+        // ── Empty read/query result is exit 0, never 1 ──────────────────
+        $(
+            #[test]
+            fn family_empty_query_exits_zero() {
+                $crate::exit_codes::assert_empty_query_exits_zero($binary, $empty_query_args);
+            }
+        )?
+
         // ── Family doctor contract (cmdrvl.doctor.v1) ───────────────────
         #[test]
         fn family_doctor_health_conforms() {
