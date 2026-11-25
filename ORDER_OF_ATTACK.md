@@ -11,7 +11,7 @@ Bead ids are `<repo>/<id>`.
 
 Fixes every broken first-try experience an agent or human hits right now.
 
-1. `homebrew-tap/bd-yy5` + `.github/bd-xk6` → `.github/bd-yn3`
+1. `homebrew-tap/bd-yy5` + `.github/bd-xk6` → `.github/bd-yn3` (all closed; the `.github` bead tracker was removed 2026-11-24)
    - Fix broken `brew install` command (cmdrvl-hash, cmdrvl-benchmark), correct benchmark binary name, `~/.epistemic` → `~/.cmdrvl`, document `--explicit`, add `--robot-triage` / `capabilities --json` / robot-docs guide to SYSTEM_PROMPT.md and AGENT_PROMPT.md.
 2. `shape/bd-j95p`, `shape/bd-c5ro`, `rvl/bd-qyf` (parallel)
    - Sync `shape/operator.json` (0.8.0 → 0.9.0), resolve its deferred `--lock` stub, document default `--explicit` zero-retention redaction on both flagship READMEs.
@@ -50,7 +50,7 @@ Track B — governance and boundary contract alignment:
 ## Wave 4 — Porcelain and structural polish (after contracts stabilize)
 
 - `verify/bd-zoe` — zero-ceremony inline/ad-hoc checks.
-- `.github/bd-63g` → `homebrew-tap/bd-qg4` — open-source `cmdrvl` umbrella CLI; build last so it wraps the unified contracts.
+- `homebrew-tap/bd-2rl` (was `.github/bd-63g`; moved 2026-11-24 when the `.github` tracker was removed) → `homebrew-tap/bd-qg4` — open-source `cmdrvl` umbrella CLI; build last so it wraps the unified contracts.
 - `canon/bd-jefv` — split core canon runtime from canon-workbench; after `canon/bd-c98n` and canon CI fix `bd-vjgi`.
 
 ## First 5 pickups
