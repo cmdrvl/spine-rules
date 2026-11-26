@@ -32,3 +32,4 @@ pub mod pipeline;
 pub mod protocol;
 pub mod redaction;
 pub mod types;
+pub mod witness_read;

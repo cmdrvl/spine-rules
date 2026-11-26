@@ -19,6 +19,13 @@
 ///   cells hold the strings in `fixture_canaries`; none may appear in stdout or stderr.
 ///   A control run with `--explicit` must show at least one, and `operator.json` must
 ///   declare `--explicit`. Tools without this pair are unaffected. See [`crate::redaction`].
+/// - `fixture_witness_query_args` + `fixture_witness_count_args` + `fixture_witness_last_args`
+///   (together, last): OPT IN to witness-read conformance. Each is the tool's own args list for
+///   that command (e.g. `&["witness", "query", "--json"]`). The suite runs them with
+///   `EPISTEMIC_WITNESS` pointing at an absent, an empty and an invalid-UTF-8 ledger (exit 0 with
+///   `[]` / `{"count":0}` / `null`) and at a directory and a mode-000 file (exit 2, empty stdout,
+///   stderr names the path), each under a 5 s kill. Tools without these keys are unaffected.
+///   See [`crate::witness_read`].
 ///
 /// # Example
 ///
@@ -49,6 +56,7 @@ macro_rules! golden_rules_suite {
         $(fixture_timestamped_args: $timestamped_args:expr,)?
         $(fixture_empty_query_args: $empty_query_args:expr,)?
         $(fixture_canary_args: $canary_args:expr, fixture_canaries: $canaries:expr,)?
+        $(fixture_witness_query_args: $wq_args:expr, fixture_witness_count_args: $wc_args:expr, fixture_witness_last_args: $wl_args:expr,)?
     ) => {
         // ── Zero-retention: no raw cell values without --explicit (opt-in) ──
         $(
@@ -64,6 +72,22 @@ macro_rules! golden_rules_suite {
                     $binary,
                     $canary_args,
                     $canaries,
+                );
+            }
+        )?
+
+        // ── Witness-read conformance (opt-in): absent/empty/invalid-UTF-8 ledgers read as empty
+        // (exit 0), a directory or mode-000 ledger is a refusal (exit 2), nothing hangs ──────
+        $(
+            #[test]
+            fn family_witness_read_conformance() {
+                $crate::witness_read::assert_witness_read_conformance(
+                    $binary,
+                    $crate::witness_read::WitnessReadArgs {
+                        query: $wq_args,
+                        count: $wc_args,
+                        last: $wl_args,
+                    },
                 );
             }
         )?

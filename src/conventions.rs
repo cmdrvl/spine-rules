@@ -165,6 +165,65 @@ pub fn run_with_timeout(binary: &str, args: &[&str], timeout: Duration) -> Optio
     }
 }
 
+/// What a child printed and how it ended.
+#[derive(Debug, Clone)]
+pub struct Captured {
+    /// `None` when the child was ended by a signal.
+    pub code: Option<i32>,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
+/// Like [`run_with_timeout`], but sets environment variables, returns what the child printed,
+/// and reports a timeout as `None` (after killing the child) instead of panicking, so a caller
+/// can record the hang and keep going.
+pub fn run_captured_with_timeout(
+    binary: &str,
+    args: &[&str],
+    env: &[(&str, &std::ffi::OsStr)],
+    timeout: Duration,
+) -> Option<Captured> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut out = tempfile::tempfile().expect("tempfile");
+    let mut err = tempfile::tempfile().expect("tempfile");
+    let mut command = Command::new(binary);
+    command
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(out.try_clone().expect("clone stdout file"))
+        .stderr(err.try_clone().expect("clone stderr file"));
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    let mut child = command
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to spawn {binary}: {e}"));
+    let start = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("try_wait") {
+            break status;
+        }
+        if start.elapsed() > timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let read_back = |file: &mut std::fs::File| {
+        let mut bytes = Vec::new();
+        file.seek(SeekFrom::Start(0)).expect("seek");
+        file.read_to_end(&mut bytes).expect("read captured output");
+        bytes
+    };
+    Some(Captured {
+        code: status.code(),
+        stdout: read_back(&mut out),
+        stderr: read_back(&mut err),
+    })
+}
+
 /// Bare invocation (no args, stdin=/dev/null, stdout piped) must terminate
 /// on its own, by exit code rather than by signal.
 pub fn assert_bare_invocation_does_not_hang(binary: &str) {
