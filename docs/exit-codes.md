@@ -63,16 +63,23 @@ only `positive`/`negative`/`error` on 0/1/2 today already conforms.
   never exit `1` for an empty result set: exit `0` and print exactly `[]`. The test asserts the
   empty array, not just valid JSON. Opt-in via `fixture_empty_query_args`; tools with a query
   subcommand must opt in (`verify` must, for `witness query`).
-- **Witness reads: empty is success, unreadable is a refusal.** `witness query` / `count` /
-  `last` on an absent, empty, or only-invalid-UTF-8 ledger exit `0` and print `[]` / `{"count":0}`
-  / `null`. A ledger that cannot be read (a directory, a mode-000 file) is exit `2`, empty
-  stdout, and a stderr line that names the path; it is never read as empty, and never hangs.
-  Opt-in via `fixture_witness_query_args`, `fixture_witness_count_args` and
-  `fixture_witness_last_args` (`family_witness_read_conformance`; each case is a child under a
-  5 s kill, the mode-000 case is skipped where the process can read mode-000 files). It does not
-  cover a ledger of valid records, human-mode output or Windows. Defect classes it catches:
-  `rvl` 0.8.0 (`last` exit 1; directory read as empty), `pack` 0.7.0 (swallowed read error),
-  `verify` 0.6.0 / `assess` 0.4.0 (spin on a directory).
+- **Witness reads.** `witness query` / `count` / `last` on an absent or empty ledger exit `0` and
+  print `[]` / `{"count":0}` / `null`. A ledger that cannot be read (a directory, a mode-000
+  file) is ALWAYS a refusal: exit `2`, empty stdout, and a stderr line that names the ledger; it
+  is never read as empty, and never hangs. A ledger line that is not valid UTF-8 is either
+  skipped (the ledger then reads as empty if nothing else is in it) or refused (exit `2`, empty
+  stdout, stderr names the ledger). The tool declares which, and must do it consistently for
+  `query`, `count` and `last`. The family default for NEW tools is pending an operator ruling.
+  Today `verify`, `assess`, `pack` and `rvl` skip; `shape`, `vacuum` and `profile` refuse.
+  Opt-in via `fixture_witness_query_args`, `fixture_witness_count_args`,
+  `fixture_witness_last_args` and the required, default-less `fixture_witness_invalid_line`
+  (`InvalidLine::Skip` or `InvalidLine::Refuse`): `family_witness_read_conformance`. Each case is
+  a child under a 5 s kill; the mode-000 case is skipped where the process can read mode-000
+  files; "names the ledger" means stderr contains the ledger's file name (so a message that
+  prints the path as given and one that prints only the file name both pass). It does not cover a
+  ledger of valid records, human-mode output or Windows. Defect classes it catches: `rvl` 0.8.0
+  (`last` exit 1; directory read as empty), `pack` 0.7.0 (swallowed read error), `verify` 0.6.0 /
+  `assess` 0.4.0 (spin on a directory).
 - **No verdict, no refusal envelope** (e.g. `veil`). Declare `refusals: []`; an empty list is
   legal and the R-007 source check then requires that the tool's production source contains no
   `"E_..."` literal. Exit `1` is declared with domain `unhealthy`, `0` and `2` as usual. Any

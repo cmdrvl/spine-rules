@@ -1,14 +1,17 @@
 //! Witness-read conformance (bd-kf5), proven against shell-script fake tools: a conforming fake
 //! passes and each known defect class is caught with a message that names it.
 
-use spine_rules::witness_read::{WitnessReadArgs, check_witness_read};
+use spine_rules::witness_read::{InvalidLine, WitnessReadArgs, check_witness_read};
 use std::os::unix::fs::PermissionsExt;
 
-const ARGS: WitnessReadArgs<'static> = WitnessReadArgs {
-    query: &["witness", "query", "--json"],
-    count: &["witness", "count", "--json"],
-    last: &["witness", "last", "--json"],
-};
+fn args(invalid_line: InvalidLine) -> WitnessReadArgs<'static> {
+    WitnessReadArgs {
+        query: &["witness", "query", "--json"],
+        count: &["witness", "count", "--json"],
+        last: &["witness", "last", "--json"],
+        invalid_line,
+    }
+}
 
 fn fake(dir: &tempfile::TempDir, body: &str) -> String {
     let path = dir.path().join("tool");
@@ -46,10 +49,28 @@ esac"#;
 const GOOD_REFUSE: &str = r#"  echo "tool: witness: failed to read ledger $ledger: unreadable" >&2
   exit 2"#;
 
+/// A tool that declares `Skip` (the fakes above skip an invalid-UTF-8 ledger as empty).
 fn violations(body: &str) -> String {
+    violations_declaring(body, InvalidLine::Skip)
+}
+
+fn violations_declaring(body: &str, invalid_line: InvalidLine) -> String {
     let dir = tempfile::tempdir().unwrap();
     let binary = fake(&dir, body);
-    check_witness_read(&binary, ARGS).join("\n")
+    check_witness_read(&binary, args(invalid_line)).join("\n")
+}
+
+/// Like [`tool`], but an invalid-UTF-8 ledger is REFUSED (exit 2, naming the ledger) the way
+/// shape/vacuum/profile do; `named` is what the refusal prints for the ledger.
+fn tool_refusing_invalid(named: &str) -> String {
+    let base = tool(GOOD_REFUSE, GOOD_EMPTY);
+    base.replacen(
+        "emit_empty\nexit 0\n",
+        &format!(
+            "case \"$ledger\" in *non-utf8*) echo \"tool: witness: not valid UTF-8: {named}\" >&2; exit 2 ;; esac\nemit_empty\nexit 0\n"
+        ),
+        1,
+    )
 }
 
 #[test]
@@ -136,7 +157,7 @@ fn refusal_that_does_not_name_the_path_is_caught() {
     let silent = "  echo 'tool: cannot read the ledger' >&2\n  exit 2";
     let v = violations(&tool(silent, GOOD_EMPTY));
     assert!(
-        v.contains("witness last on directory ledger: stderr must name the path"),
+        v.contains("witness last on directory ledger: stderr must name the ledger (a_directory)"),
         "{v}"
     );
 }
@@ -189,4 +210,66 @@ exit 0
             "case must be skipped when mode 000 is not enforced:\n{v}"
         );
     }
+}
+
+#[test]
+fn declared_skip_but_refusing_is_caught() {
+    // shape/vacuum/profile behaviour, declared as Skip: must be flagged on every command.
+    let v = violations_declaring(&tool_refusing_invalid("$ledger"), InvalidLine::Skip);
+    for command in ["query", "count", "last"] {
+        assert!(
+            v.contains(&format!(
+                "witness {command} on invalid-utf8 line (declared Skip) ledger: exit Some(2), want 0"
+            )),
+            "{v}"
+        );
+    }
+}
+
+#[test]
+fn declared_refuse_but_skipping_is_caught() {
+    // verify/assess/pack/rvl behaviour, declared as Refuse: must be flagged on every command.
+    let v = violations_declaring(&tool(GOOD_REFUSE, GOOD_EMPTY), InvalidLine::Refuse);
+    for command in ["query", "count", "last"] {
+        assert!(
+            v.contains(&format!(
+                "witness {command} on invalid-utf8 line (declared Refuse) ledger: exit Some(0), want 2 (a tool that declares Refuse must refuse)"
+            )),
+            "{v}"
+        );
+    }
+}
+
+#[test]
+fn declared_refuse_and_refusing_passes_and_declared_skip_and_skipping_passes() {
+    let refusing = tool_refusing_invalid("$ledger");
+    let v = violations_declaring(&refusing, InvalidLine::Refuse);
+    assert!(v.is_empty(), "Refuse declared and honoured must pass:\n{v}");
+    let v = violations_declaring(&tool(GOOD_REFUSE, GOOD_EMPTY), InvalidLine::Skip);
+    assert!(v.is_empty(), "Skip declared and honoured must pass:\n{v}");
+}
+
+#[test]
+fn a_refusal_naming_only_the_file_name_passes_but_one_naming_nothing_fails() {
+    // shape's message names the ledger without its directory. A file-name-only message passes...
+    let by_name =
+        "  echo \"tool: witness: cannot read ledger $(basename \"$ledger\")\" >&2\n  exit 2";
+    let v = violations(&tool(by_name, GOOD_EMPTY));
+    assert!(v.is_empty(), "file-name-only refusal must pass:\n{v}");
+    // ...and a generic message that names no ledger fails.
+    let generic = "  echo 'tool: witness: ledger unreadable' >&2\n  exit 2";
+    let v = violations(&tool(generic, GOOD_EMPTY));
+    assert!(
+        v.contains("stderr must name the ledger (a_directory)"),
+        "{v}"
+    );
+}
+
+#[test]
+fn a_refusing_invalid_line_that_names_nothing_is_caught() {
+    let v = violations_declaring(&tool_refusing_invalid("a ledger"), InvalidLine::Refuse);
+    assert!(
+        v.contains("stderr must name the ledger (non-utf8.jsonl)"),
+        "{v}"
+    );
 }

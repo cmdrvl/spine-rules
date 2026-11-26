@@ -20,11 +20,14 @@
 ///   A control run with `--explicit` must show at least one, and `operator.json` must
 ///   declare `--explicit`. Tools without this pair are unaffected. See [`crate::redaction`].
 /// - `fixture_witness_query_args` + `fixture_witness_count_args` + `fixture_witness_last_args`
-///   (together, last): OPT IN to witness-read conformance. Each is the tool's own args list for
-///   that command (e.g. `&["witness", "query", "--json"]`). The suite runs them with
-///   `EPISTEMIC_WITNESS` pointing at an absent, an empty and an invalid-UTF-8 ledger (exit 0 with
-///   `[]` / `{"count":0}` / `null`) and at a directory and a mode-000 file (exit 2, empty stdout,
-///   stderr names the path), each under a 5 s kill. Tools without these keys are unaffected.
+///   and `fixture_witness_invalid_line` (all four together, last): OPT IN to witness-read
+///   conformance. The first three are the tool's own args list for that command (e.g.
+///   `&["witness", "query", "--json"]`). `fixture_witness_invalid_line` is required and has no
+///   default: `spine_rules::witness_read::InvalidLine::Skip` or `::Refuse`. The suite runs them
+///   with `EPISTEMIC_WITNESS` pointing at an absent and an empty ledger (exit 0 with `[]` /
+///   `{"count":0}` / `null`), at a directory and a mode-000 file (always exit 2, empty stdout,
+///   stderr names the ledger), and at a ledger whose line is not valid UTF-8 (`Skip` = the empty
+///   read, `Refuse` = exit 2), each under a 5 s kill. Tools without these keys are unaffected.
 ///   See [`crate::witness_read`].
 ///
 /// # Example
@@ -56,7 +59,7 @@ macro_rules! golden_rules_suite {
         $(fixture_timestamped_args: $timestamped_args:expr,)?
         $(fixture_empty_query_args: $empty_query_args:expr,)?
         $(fixture_canary_args: $canary_args:expr, fixture_canaries: $canaries:expr,)?
-        $(fixture_witness_query_args: $wq_args:expr, fixture_witness_count_args: $wc_args:expr, fixture_witness_last_args: $wl_args:expr,)?
+        $(fixture_witness_query_args: $wq_args:expr, fixture_witness_count_args: $wc_args:expr, fixture_witness_last_args: $wl_args:expr, fixture_witness_invalid_line: $wil:expr,)?
     ) => {
         // ── Zero-retention: no raw cell values without --explicit (opt-in) ──
         $(
@@ -76,8 +79,9 @@ macro_rules! golden_rules_suite {
             }
         )?
 
-        // ── Witness-read conformance (opt-in): absent/empty/invalid-UTF-8 ledgers read as empty
-        // (exit 0), a directory or mode-000 ledger is a refusal (exit 2), nothing hangs ──────
+        // ── Witness-read conformance (opt-in): absent/empty ledgers read as empty (exit 0),
+        // a directory or mode-000 ledger is a refusal (exit 2), an invalid-UTF-8 line follows the
+        // tool's declaration, nothing hangs ──────
         $(
             #[test]
             fn family_witness_read_conformance() {
@@ -87,6 +91,7 @@ macro_rules! golden_rules_suite {
                         query: $wq_args,
                         count: $wc_args,
                         last: $wl_args,
+                        invalid_line: $wil,
                     },
                 );
             }

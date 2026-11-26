@@ -3,10 +3,15 @@
 //!
 //! Family ADR (`docs/exit-codes.md`):
 //!
-//! - an absent, empty or only-invalid-UTF-8 ledger is a successful empty read: exit `0` and
-//!   `[]` (query), `{"count":0}` (count), `null` (last);
-//! - an unreadable ledger (a directory, a mode-000 file) is a refusal: exit `2`, empty stdout,
-//!   and a stderr line that names the path;
+//! - an absent or empty ledger is a successful empty read: exit `0` and `[]` (query),
+//!   `{"count":0}` (count), `null` (last);
+//! - an unreadable ledger (a directory, a mode-000 file) is ALWAYS a refusal: exit `2`, empty
+//!   stdout, and a stderr line that names the ledger;
+//! - a ledger line that is not valid UTF-8 is either skipped (the empty-read shape above) or
+//!   refused (exit `2`, empty stdout, stderr names the ledger). The tool declares which with
+//!   [`InvalidLine`]; the family default for new tools is pending an operator ruling, so the
+//!   declaration is required and has no default. Whichever is declared must hold for query, count
+//!   and last alike;
 //! - nothing may hang: every run is a child with a hard timeout, and a hang is a violation.
 //!
 //! The checks run the binary with `EPISTEMIC_WITNESS=<path>`. Opt in through the
@@ -21,12 +26,24 @@ use std::time::Duration;
 /// How long any one child may run before it is killed and reported as a hang.
 pub const WITNESS_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The argument lists of a tool's three witness-read commands (they differ per tool).
+/// What a tool does with a ledger line that is not valid UTF-8. Declared per tool; the check
+/// holds the tool to its own declaration (no family default yet).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InvalidLine {
+    /// The line is skipped like a malformed one: a ledger holding only such lines reads as empty.
+    Skip,
+    /// The read is refused: exit `2`, empty stdout, stderr names the ledger.
+    Refuse,
+}
+
+/// The argument lists of a tool's three witness-read commands (they differ per tool) and its
+/// declared invalid-UTF-8 behaviour.
 #[derive(Debug, Clone, Copy)]
 pub struct WitnessReadArgs<'a> {
     pub query: &'a [&'a str],
     pub count: &'a [&'a str],
     pub last: &'a [&'a str],
+    pub invalid_line: InvalidLine,
 }
 
 #[derive(Clone, Copy)]
@@ -69,15 +86,37 @@ pub fn check_witness_read(binary: &str, args: WitnessReadArgs<'_>) -> Vec<String
     let directory = dir.path().join("a_directory");
     std::fs::create_dir(&directory).expect("create directory ledger");
 
-    for (label, path) in [
-        ("absent", &absent),
-        ("empty", &empty),
-        ("invalid-utf8 line", &non_utf8),
-    ] {
+    for (label, path) in [("absent", &absent), ("empty", &empty)] {
         for command in Command::ALL {
             if check_empty_read(binary, args, command, label, path, &mut violations) {
                 break; // a hang is reported once per ledger; do not wait out the rest
             }
+        }
+    }
+
+    // The invalid-UTF-8 ledger is judged against the tool's own declaration.
+    for command in Command::ALL {
+        let hung = match args.invalid_line {
+            InvalidLine::Skip => check_empty_read(
+                binary,
+                args,
+                command,
+                "invalid-utf8 line (declared Skip)",
+                &non_utf8,
+                &mut violations,
+            ),
+            InvalidLine::Refuse => check_unreadable(
+                binary,
+                args,
+                command,
+                "invalid-utf8 line (declared Refuse)",
+                &non_utf8,
+                "a tool that declares Refuse must refuse",
+                &mut violations,
+            ),
+        };
+        if hung {
+            break;
         }
     }
 
@@ -88,7 +127,15 @@ pub fn check_witness_read(binary: &str, args: WitnessReadArgs<'_>) -> Vec<String
     }
     for (label, path) in &unreadable {
         for command in Command::ALL {
-            if check_unreadable(binary, args, command, label, path, &mut violations) {
+            if check_unreadable(
+                binary,
+                args,
+                command,
+                label,
+                path,
+                "an unreadable ledger is a refusal, not an empty read",
+                &mut violations,
+            ) {
                 break;
             }
         }
@@ -178,6 +225,7 @@ fn check_unreadable(
     command: Command,
     label: &str,
     ledger: &Path,
+    why: &str,
     violations: &mut Vec<String>,
 ) -> bool {
     let what = format!("witness {} on {label} ledger", command.name());
@@ -188,20 +236,24 @@ fn check_unreadable(
         return true;
     };
     if out.code != Some(2) {
-        violations.push(format!(
-            "{what}: exit {:?}, want 2 (an unreadable ledger is a refusal, not an empty read)",
-            out.code
-        ));
+        violations.push(format!("{what}: exit {:?}, want 2 ({why})", out.code));
         return false;
     }
     if !out.stdout.is_empty() {
         violations.push(format!("{what}: stdout must be empty on a refusal"));
     }
+    // "Names the path": stderr must contain the ledger's file name. Every ledger here has a name
+    // no generic message would contain (`a_directory`, `mode-000.jsonl`, `non-utf8.jsonl`), so
+    // this identifies the ledger whether the tool prints the path as given (which contains the
+    // file name) or only the file name, as shape does. It is weaker than demanding the full path.
     let stderr = String::from_utf8_lossy(&out.stderr);
-    if !stderr.contains(&ledger.display().to_string()) {
+    let name = ledger
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if name.is_empty() || !stderr.contains(&name) {
         violations.push(format!(
-            "{what}: stderr must name the path {}; got {:?}",
-            ledger.display(),
+            "{what}: stderr must name the ledger ({name}); got {:?}",
             stderr.trim()
         ));
     }

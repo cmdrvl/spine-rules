@@ -111,7 +111,7 @@ Generated tests: `family_doctor_{health,capabilities,triage}_conforms`, `family_
 
 ## Exit codes
 
-`0` positive, `1` negative, `expected_change` or `unhealthy` (always declared: every tool has `doctor`), `2` error (refusal / CLI error), `3` `policy` (valid verdict distinct from refusal, e.g. `assess` BLOCK). Diff-style tools whose `1` is expected must offer `--exit-zero-on-change`; `--exit-zero-on-change` never affects `doctor`; read/query commands exit `0` and print `[]` on an empty result; the canonical `assess` band table is in the ADR; `doctor` exits `1` when unhealthy. Full contract and migration notes: [`docs/exit-codes.md`](docs/exit-codes.md). Opt-in test: `fixture_empty_query_args` -> `family_empty_query_exits_zero`. Opt-in witness-read test: `fixture_witness_{query,count,last}_args` -> `family_witness_read_conformance` (absent/empty/invalid-UTF-8 ledger = exit 0 with `[]` / `{"count":0}` / `null`; directory or mode-000 ledger = exit 2, empty stdout, path on stderr; 5 s kill per child).
+`0` positive, `1` negative, `expected_change` or `unhealthy` (always declared: every tool has `doctor`), `2` error (refusal / CLI error), `3` `policy` (valid verdict distinct from refusal, e.g. `assess` BLOCK). Diff-style tools whose `1` is expected must offer `--exit-zero-on-change`; `--exit-zero-on-change` never affects `doctor`; read/query commands exit `0` and print `[]` on an empty result; the canonical `assess` band table is in the ADR; `doctor` exits `1` when unhealthy. Full contract and migration notes: [`docs/exit-codes.md`](docs/exit-codes.md). Opt-in test: `fixture_empty_query_args` -> `family_empty_query_exits_zero`. Opt-in witness-read test: `fixture_witness_{query,count,last}_args` + `fixture_witness_invalid_line` (`InvalidLine::Skip` or `Refuse`, required, no default) -> `family_witness_read_conformance` (absent/empty ledger = exit 0 with `[]` / `{"count":0}` / `null`; directory or mode-000 ledger = always exit 2, empty stdout, ledger named on stderr; an invalid-UTF-8 line follows the declaration; 5 s kill per child).
 
 ## Three layers, one-way dependencies
 
@@ -147,7 +147,7 @@ What it proves: none of those strings appear on either stream of that one invoca
 | `r008_no_witness_suppresses` | R-008 | If `fixture_success_args` set |
 | `r017_witness_failure_nonfatal` | R-017 | If `fixture_success_args` set |
 | `r021_csv_row_count_preserved` | R-021 | If `fixture_csv` + `fixture_csv_args` set |
-| `family_witness_read_conformance` | exit-codes ADR | If `fixture_witness_query_args` + `fixture_witness_count_args` + `fixture_witness_last_args` set |
+| `family_witness_read_conformance` | exit-codes ADR | If `fixture_witness_query_args` + `fixture_witness_count_args` + `fixture_witness_last_args` + `fixture_witness_invalid_line` set |
 
 ## ast-grep rules
 
