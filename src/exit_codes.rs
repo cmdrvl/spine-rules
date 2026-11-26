@@ -90,10 +90,19 @@ pub fn check_exit_codes(
 /// exits 0 and prints exactly the empty JSON array `[]` (an empty result is
 /// not a failure).
 pub fn assert_empty_query_exits_zero(binary: &str, args: &[&str]) {
-    let out = Command::new(binary)
-        .args(args)
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run {binary} {args:?}: {e}"));
+    // Retry ETXTBSY: a script written moments ago may still be open for writing in another test
+    // thread's forked child, which fails exec with "Text file busy" for a few milliseconds.
+    let mut attempts = 0;
+    let out = loop {
+        match Command::new(binary).args(args).output() {
+            Ok(out) => break out,
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 50 => {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(e) => panic!("failed to run {binary} {args:?}: {e}"),
+        }
+    };
     assert_eq!(
         out.status.code(),
         Some(0),

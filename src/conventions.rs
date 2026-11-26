@@ -196,9 +196,19 @@ pub fn run_captured_with_timeout(
     for (name, value) in env {
         command.env(name, value);
     }
-    let mut child = command
-        .spawn()
-        .unwrap_or_else(|e| panic!("failed to spawn {binary}: {e}"));
+    // A script written moments ago can still be open for writing in another test thread's forked
+    // child, which makes exec fail with ETXTBSY ("Text file busy"). That clears in milliseconds.
+    let mut attempts = 0;
+    let mut child = loop {
+        match command.spawn() {
+            Ok(child) => break child,
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 50 => {
+                attempts += 1;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => panic!("failed to spawn {binary}: {e}"),
+        }
+    };
     let start = Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().expect("try_wait") {
