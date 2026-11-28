@@ -282,7 +282,11 @@ pub fn assert_version_exits_zero(binary: &str) {
 ///
 /// Handles both single-object JSON and streaming JSONL (checks first line).
 pub fn assert_output_has_version(binary: &str, args: &[&str]) {
+    let state = tempfile::tempdir().expect("create scratch HOME");
+    let witness = state.path().join("witness.jsonl");
     let output = Command::new(binary)
+        .env("HOME", state.path())
+        .env("EPISTEMIC_WITNESS", &witness)
         .args(args)
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {}: {}", binary, e));
@@ -305,7 +309,11 @@ pub fn assert_output_has_version(binary: &str, args: &[&str]) {
 
 /// Assert that a refusal (exit 2) includes "version" in JSON stdout.
 pub fn assert_refusal_has_version(binary: &str, args: &[&str]) {
+    let state = tempfile::tempdir().expect("create scratch HOME");
+    let witness = state.path().join("witness.jsonl");
     let output = Command::new(binary)
+        .env("HOME", state.path())
+        .env("EPISTEMIC_WITNESS", &witness)
         .args(args)
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {}: {}", binary, e));
@@ -334,9 +342,11 @@ pub fn assert_refusal_has_version(binary: &str, args: &[&str]) {
 /// reruns with `EPISTEMIC_WITNESS` + `--no-witness` and asserts the
 /// exit code is unchanged and no ledger file was created.
 pub fn assert_no_witness_suppresses_ledger(binary: &str, args: &[&str]) {
+    let baseline_state = tempfile::tempdir().expect("create baseline scratch HOME");
     // Baseline: run without EPISTEMIC_WITNESS to get domain exit code.
     let baseline = Command::new(binary)
         .env_remove("EPISTEMIC_WITNESS")
+        .env("HOME", baseline_state.path())
         .args(args)
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {} (baseline): {}", binary, e));
@@ -352,6 +362,7 @@ pub fn assert_no_witness_suppresses_ledger(binary: &str, args: &[&str]) {
     }
 
     let output = Command::new(binary)
+        .env("HOME", temp.path())
         .env("EPISTEMIC_WITNESS", &ledger_path)
         .args(&full_args)
         .output()
@@ -377,6 +388,7 @@ pub fn assert_no_witness_suppresses_ledger(binary: &str, args: &[&str]) {
 /// with an impossible `EPISTEMIC_WITNESS` path (without `--no-witness`)
 /// and asserts the exit code is unchanged.
 pub fn assert_witness_failure_nonfatal(binary: &str, args: &[&str]) {
+    let baseline_state = tempfile::tempdir().expect("create baseline scratch HOME");
     // Strip --no-witness from args so witness code actually runs.
     let bare_args: Vec<&str> = args
         .iter()
@@ -387,6 +399,7 @@ pub fn assert_witness_failure_nonfatal(binary: &str, args: &[&str]) {
     // Baseline: run without witness env.
     let baseline = Command::new(binary)
         .env_remove("EPISTEMIC_WITNESS")
+        .env("HOME", baseline_state.path())
         .args(&bare_args)
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {} (baseline): {}", binary, e));
@@ -394,6 +407,7 @@ pub fn assert_witness_failure_nonfatal(binary: &str, args: &[&str]) {
 
     // Run with an impossible witness path — write will fail.
     let output = Command::new(binary)
+        .env("HOME", baseline_state.path())
         .env("EPISTEMIC_WITNESS", "/dev/null/impossible/witness.jsonl")
         .args(&bare_args)
         .output()

@@ -13,7 +13,7 @@ const GOOD: &str = r#"{
   "description": "Demo tool",
   "commands": [
     {"name": "capabilities"}, {"name": "robot-docs"}, {"name": "doctor"},
-    {"name": "verify", "refusals": [{"code": "E_IO"}]}
+    {"name": "verify", "authored_inputs": [{"name": "rules", "schema_flag": "--input-schema", "example": "demo verify rules.jsonl", "allowed_values": ["exact", "numeric"]}], "refusals": [{"code": "E_IO"}]}
   ],
   "exit_codes": {
     "0": {"meaning": "OK", "domain": "positive"},
@@ -134,6 +134,22 @@ fn validation_catches_each_violation() {
         (
             "missing required subcommand \"doctor\"",
             Box::new(|c| c.commands.retain(|x| x.name != "doctor")),
+        ),
+        (
+            "unsupported schema flag",
+            Box::new(|c| c.commands[3].authored_inputs[0].schema_flag = "--input".into()),
+        ),
+        (
+            "empty example",
+            Box::new(|c| c.commands[3].authored_inputs[0].example.clear()),
+        ),
+        (
+            "repeats allowed value",
+            Box::new(|c| {
+                c.commands[3].authored_inputs[0]
+                    .allowed_values
+                    .push("exact".into())
+            }),
         ),
     ];
     for (needle, mutate) in cases {

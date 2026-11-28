@@ -90,11 +90,18 @@ pub fn check_exit_codes(
 /// exits 0 and prints exactly the empty JSON array `[]` (an empty result is
 /// not a failure).
 pub fn assert_empty_query_exits_zero(binary: &str, args: &[&str]) {
+    let state = tempfile::tempdir().expect("create scratch HOME");
+    let witness = state.path().join("witness.jsonl");
     // Retry ETXTBSY: a script written moments ago may still be open for writing in another test
     // thread's forked child, which fails exec with "Text file busy" for a few milliseconds.
     let mut attempts = 0;
     let out = loop {
-        match Command::new(binary).args(args).output() {
+        match Command::new(binary)
+            .env("HOME", state.path())
+            .env("EPISTEMIC_WITNESS", &witness)
+            .args(args)
+            .output()
+        {
             Ok(out) => break out,
             Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 50 => {
                 attempts += 1;

@@ -92,8 +92,13 @@ pub fn assert_no_ansi_when_piped(binary: &str, args: &[&str]) {
         ("NO_COLOR=1 TERM=dumb", true),
         ("non-TTY, no NO_COLOR", false),
     ] {
+        let state = tempfile::tempdir().expect("create scratch HOME");
+        let witness = state.path().join("witness.jsonl");
         let mut cmd = Command::new(binary);
-        cmd.args(args).stdin(Stdio::null());
+        cmd.args(args)
+            .stdin(Stdio::null())
+            .env("HOME", state.path())
+            .env("EPISTEMIC_WITNESS", &witness);
         if no_color {
             cmd.env("NO_COLOR", "1").env("TERM", "dumb");
         } else {
@@ -114,10 +119,14 @@ pub fn assert_no_ansi_when_piped(binary: &str, args: &[&str]) {
 /// and exit code even when wall-clock time has moved on (so any embedded
 /// timestamp must derive from the variable, not the clock).
 pub fn assert_source_date_epoch_deterministic(binary: &str, args: &[&str]) {
+    let state = tempfile::tempdir().expect("create scratch HOME");
+    let witness = state.path().join("witness.jsonl");
     let run = || {
         Command::new(binary)
             .args(args)
             .env("SOURCE_DATE_EPOCH", "1700000000")
+            .env("HOME", state.path())
+            .env("EPISTEMIC_WITNESS", &witness)
             .stdin(Stdio::null())
             .output()
             .unwrap_or_else(|e| panic!("failed to run {binary} {args:?}: {e}"))

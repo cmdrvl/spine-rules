@@ -69,6 +69,7 @@
         "properties": {
           "name": { "type": "string" },
           "description": { "type": "string" },
+          "authored_inputs": { "type": "array", "items": { "$ref": "#/$defs/authored_input" } },
           "refusals": { "type": "array", "items": { "$ref": "#/$defs/refusal" } }
         }
       }
@@ -134,6 +135,16 @@
         "action": { "type": "string" },
         "tool": { "type": "string" },
         "flag": { "type": "string" }
+      }
+    },
+    "authored_input": {
+      "type": "object",
+      "required": ["name", "schema_flag", "example"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "schema_flag": { "enum": ["--input-schema", "--schema"] },
+        "example": { "type": "string", "minLength": 1 },
+        "allowed_values": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
       }
     }
   }

@@ -19,6 +19,7 @@
 //! }
 //! ```
 
+pub mod authored_input;
 pub mod composite_key;
 pub mod contract;
 pub mod conventions;

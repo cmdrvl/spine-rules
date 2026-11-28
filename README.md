@@ -82,6 +82,33 @@ Parsing is strict: only the canonical spellings (`tool_version`, `commands`, `re
 
 New generated tests: `r006_operator_version_matches_cargo_toml` (operator version == `Cargo.toml` package version; workspace-inherited versions are rejected), `r006_operator_declares_required_subcommands` (`capabilities`, `robot-docs`, `doctor`; override with `required_subcommands: &[...]`), `r006_capabilities_json_matches_describe`.
 
+## Authored-input self-discovery
+
+Commands that accept operator-authored files declare them in their `operator.v1` command entry:
+
+```json
+{
+  "name": "ground",
+  "authored_inputs": [{
+    "name": "rules",
+    "schema_flag": "--input-schema",
+    "example": "verify ground rules.jsonl --key loan_id",
+    "allowed_values": ["exact", "numeric"]
+  }]
+}
+```
+
+For each declared input, the route `<tool> [subcmd] --input-schema` (or `--schema`) and
+`<tool> [subcmd] --describe` must exit `0` without a positional file or `--bind`/`--lock`.
+The subcommand help and standalone `robot-docs guide` must repeat a non-empty copy-paste example
+and the allowed-values list (including an explicit `allowed values: none` when there is no enum).
+This makes authored files discoverable without source inspection and prevents an empty example
+from satisfying the contract. `golden_rules_suite!` opts in with
+`authored_input_guide_args: &["robot-docs", "guide"]`; it runs every metadata child under a
+five-second timeout with scratch `HOME` and `EPISTEMIC_WITNESS`, so conformance tests never write
+the user's real witness ledger. The reusable implementation is
+`spine_rules::authored_input::assert_self_discovery`.
+
 ## Doctor contract (`cmdrvl.doctor.v1`)
 
 One schema for all three doctor reports (`spine_rules::doctor::DoctorReport`):
@@ -148,6 +175,7 @@ What it proves: none of those strings appear on either stream of that one invoca
 | `r017_witness_failure_nonfatal` | R-017 | If `fixture_success_args` set |
 | `r021_csv_row_count_preserved` | R-021 | If `fixture_csv` + `fixture_csv_args` set |
 | `family_witness_read_conformance` | exit-codes ADR | If `fixture_witness_query_args` + `fixture_witness_count_args` + `fixture_witness_last_args` + `fixture_witness_invalid_line` set |
+| `family_authored_input_self_discovery` | authored-input contract | If `authored_input_guide_args` is set and `operator.json` declares authored inputs |
 
 ## ast-grep rules
 

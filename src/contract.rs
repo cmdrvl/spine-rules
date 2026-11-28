@@ -78,10 +78,26 @@ pub struct Command {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Authored input files accepted by this command and their self-discovery surfaces.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authored_inputs: Vec<AuthoredInput>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub refusals: Vec<Refusal>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// One file format that an operator authors and passes to a command.
+///
+/// The command must expose the declared `schema_flag` with no positional input,
+/// and must repeat `example` and the allowed values in its help and robot guide.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AuthoredInput {
+    pub name: String,
+    pub schema_flag: String,
+    pub example: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_values: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -174,6 +190,41 @@ impl OperatorContract {
         for c in &self.commands {
             if !names.insert(c.name.as_str()) {
                 v.push(format!("duplicate command {:?}", c.name));
+            }
+            for input in &c.authored_inputs {
+                if input.name.trim().is_empty() {
+                    v.push(format!(
+                        "command {:?} has authored input with empty name",
+                        c.name
+                    ));
+                }
+                if !matches!(input.schema_flag.as_str(), "--input-schema" | "--schema") {
+                    v.push(format!(
+                        "command {:?} authored input {:?} has unsupported schema flag {:?}; expected --input-schema or --schema",
+                        c.name, input.name, input.schema_flag
+                    ));
+                }
+                if input.example.trim().is_empty() {
+                    v.push(format!(
+                        "command {:?} authored input {:?} has an empty example",
+                        c.name, input.name
+                    ));
+                }
+                let mut values = BTreeSet::new();
+                for value in &input.allowed_values {
+                    if value.trim().is_empty() {
+                        v.push(format!(
+                            "command {:?} authored input {:?} has an empty allowed value",
+                            c.name, input.name
+                        ));
+                    }
+                    if !values.insert(value.as_str()) {
+                        v.push(format!(
+                            "command {:?} authored input {:?} repeats allowed value {:?}",
+                            c.name, input.name, value
+                        ));
+                    }
+                }
             }
         }
         for required in REQUIRED_SUBCOMMANDS {

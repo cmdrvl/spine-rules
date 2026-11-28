@@ -29,6 +29,11 @@
 ///   stderr names the ledger), and at a ledger whose line is not valid UTF-8 (`Skip` = the empty
 ///   read, `Refuse` = exit 2), each under a 5 s kill. Tools without these keys are unaffected.
 ///   See [`crate::witness_read`].
+/// - `authored_input_guide_args`: args for standalone `robot-docs guide`; OPT IN to the
+///   authored-input self-discovery contract. Commands with non-empty `authored_inputs` entries
+///   in `operator.json` must expose their declared `--input-schema`/`--schema`, `--describe`,
+///   and `--help` without authored files, and the guide/help must contain a non-empty example
+///   and allowed values. See [`crate::authored_input`].
 ///
 /// # Example
 ///
@@ -60,6 +65,7 @@ macro_rules! golden_rules_suite {
         $(fixture_empty_query_args: $empty_query_args:expr,)?
         $(fixture_canary_args: $canary_args:expr, fixture_canaries: $canaries:expr,)?
         $(fixture_witness_query_args: $wq_args:expr, fixture_witness_count_args: $wc_args:expr, fixture_witness_last_args: $wl_args:expr, fixture_witness_invalid_line: $wil:expr,)?
+        $(authored_input_guide_args: $authored_guide_args:expr,)?
     ) => {
         // ── Zero-retention: no raw cell values without --explicit (opt-in) ──
         $(
@@ -93,6 +99,18 @@ macro_rules! golden_rules_suite {
                         last: $wl_args,
                         invalid_line: $wil,
                     },
+                );
+            }
+        )?
+
+        // ── Authored-input self-discovery (opt-in) ───────────────────────
+        $(
+            #[test]
+            fn family_authored_input_self_discovery() {
+                $crate::authored_input::assert_self_discovery(
+                    $binary,
+                    $operator_json,
+                    $authored_guide_args,
                 );
             }
         )?
